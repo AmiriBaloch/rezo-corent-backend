@@ -42,6 +42,58 @@ const config = convict({
     default: "redis://127.0.0.1:6379",
     env: "REDIS_URL",
   },
+  frontendUrl: {
+    doc: "Frontend URL",
+    format: String,
+    default: "http://localhost:3000",
+    env: "FRONTEND_URL",
+  },
+  googleClientId: {
+    doc: "Google Client ID",
+    format: String,
+    default: "",
+    env: "GOOGLE_CLIENT_ID",
+  },
+  googleClientSecret: {
+    doc: "Google Client Secret",
+    format: String,
+    default: "",
+    env: "GOOGLE_CLIENT_SECRET",
+    sensitive: true,
+  },
+  email: {
+    host: {
+      doc: "Email SMTP host",
+      format: String,
+      default: "smtp.ethereal.email",
+      env: "EMAIL_HOST",
+    },
+    port: {
+      doc: "Email SMTP port",
+      format: "port",
+      default: 587,
+      env: "EMAIL_PORT",
+    },
+    secure: {
+      doc: "Email SMTP secure connection",
+      format: Boolean,
+      default: false,
+      env: "EMAIL_SECURE",
+    },
+    user: {
+      doc: "Email SMTP user",
+      format: String,
+      default: "",
+      env: "EMAIL_USER",
+    },
+    pass: {
+      doc: "Email SMTP password",
+      format: String,
+      default: "",
+      env: "EMAIL_PASS",
+      sensitive: true,
+    },
+  },
 });
 
 // Perform validation

@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import config from "../config/env.js";
+import crypto from "crypto";
 export const generateAccessToken = (userId) => {
   return jwt.sign({ id: userId }, config.get("jwtSecret"), {
     expiresIn: "15m",
@@ -11,3 +12,6 @@ export const generateRefreshToken = (userId) => {
     expiresIn: "7d",
   }); // Long-lived
 };
+
+export const generateToken = (length = 32) =>
+  crypto.randomBytes(length).toString("hex");

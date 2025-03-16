@@ -14,9 +14,14 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
-  refreshToken  String?
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  password             String
+  createdAt            DateTime  @default(now())
+  emailVerified        Boolean   @default(false)
+  verificationToken    String?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+
+  refreshToken String?
 }
