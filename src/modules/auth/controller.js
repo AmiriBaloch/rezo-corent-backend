@@ -10,27 +10,113 @@ import {
 
 export const register = async (req, res) => {
   try {
+    // Validate input
     const { email, password } = req.body;
-    const { token, user } = await registerUser(email, password);
-    res.json({
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
+      });
+    }
+
+    // Register user
+    const result = await registerUser({ email, password });
+
+    // Set secure HTTP-only cookie for refresh token
+    res.cookie("refreshToken", result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    // Successful response
+    res.status(201).json({
+      success: true,
       message:
-        "User registered. Please check your email to verify your account.",
-      user,
-      token,
+        "User registered successfully. Please check your email to verify your account.",
+      data: {
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          createdAt: result.user.createdAt,
+        },
+        accessToken: result.accessToken,
+      },
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    // Log the error for debugging
+    console.error("Registration error:", error);
+
+    // Handle specific error types
+    let statusCode = 400;
+    let errorMessage = error.message;
+
+    if (error.message.includes("already in use")) {
+      statusCode = 409; // Conflict
+    }
+
+    res.status(statusCode).json({
+      success: false,
+      error: errorMessage,
+      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
   }
 };
+
 export const verifyEmail = async (req, res) => {
   try {
-    const { token } = req.query; // Extract token from URL query params
-    const response = await verifyEmailService(token);
-    res.json(response);
+    // Validate input
+    const { otp } = req.query;
+    if (!otp || otp.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid OTP format. OTP must be 6 digits.",
+      });
+    }
+
+    // Verify email using service
+    const { user, refreshToken, accessToken } = await verifyEmailService(otp);
+  
+    // Successful response
+    res.status(200).json({
+      success: true,
+      message: "Email verified successfully",
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          emailVerified: user.emailVerified,
+        },
+        accessToken,
+        refreshToken,
+      },
+    });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    // Log the error for debugging
+    console.error("Email verification error:", error);
+
+    // Handle specific error types
+    let statusCode = 400;
+    let errorMessage = error.message;
+
+    if (error.message.includes("expired")) {
+      statusCode = 410; // Gone
+      errorMessage = "OTP has expired. Please request a new one.";
+    } else if (error.message.includes("invalid")) {
+      statusCode = 401; // Unauthorized
+      errorMessage = "Invalid OTP. Please check your code and try again.";
+    }
+
+    res.status(statusCode).json({
+      success: false,
+      error: errorMessage,
+      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
   }
 };
+
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -78,11 +164,64 @@ export const requestPasswordReset = async (req, res) => {
 
 export const resetPassword = async (req, res) => {
   try {
-    const { token, newPassword } = req.body;
-    const response = await resetPasswordService(token, newPassword);
-    res.json(response);
+    // Validate input
+    const { otp, newPassword } = req.body;
+
+    if (!otp || otp.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid OTP format. OTP must be 6 digits.",
+      });
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: "Password must be at least 8 characters long.",
+      });
+    }
+
+    // Reset password using service
+    const result = await resetPasswordService(otp, newPassword);
+
+    // Clear refresh token cookie if exists
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
+
+    // Successful response
+    res.status(200).json({
+      success: true,
+      message:
+        "Password reset successfully. Please login with your new password.",
+      data: {
+        email: result.email,
+        passwordChangedAt: result.passwordChangedAt,
+      },
+    });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    // Log the error for debugging
+    console.error("Password reset error:", error);
+
+    // Handle specific error types
+    let statusCode = 400;
+    let errorMessage = error.message;
+
+    if (error.message.includes("expired")) {
+      statusCode = 410; // Gone
+      errorMessage = "OTP has expired. Please request a new one.";
+    } else if (error.message.includes("invalid")) {
+      statusCode = 401; // Unauthorized
+      errorMessage = "Invalid OTP. Please check your code and try again.";
+    }
+
+    res.status(statusCode).json({
+      success: false,
+      error: errorMessage,
+      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
   }
 };
 

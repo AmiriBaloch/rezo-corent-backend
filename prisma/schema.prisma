@@ -14,14 +14,17 @@ datasource db {
 }
 
 model User {
-  id                   String    @id @default(uuid())
-  email                String    @unique
-  password             String
-  createdAt            DateTime  @default(now())
-  emailVerified        Boolean   @default(false)
-  verificationToken    String?
-  resetPasswordToken   String?
-  resetPasswordExpires DateTime?
+  id                      String    @id @default(uuid())
+  email                   String    @unique
+  password                String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  emailVerified           Boolean   @default(false)
+  emailOtp                String?   @db.VarChar(6)
+  emailOtpExpires         DateTime?
+  resetPasswordOtp        String?   @db.VarChar(6)
+  resetPasswordOtpExpires DateTime?
+  refreshToken            String?
 
-  refreshToken String?
+ @@map("users") 
 }

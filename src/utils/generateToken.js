@@ -15,3 +15,6 @@ export const generateRefreshToken = (userId) => {
 
 export const generateToken = (length = 32) =>
   crypto.randomBytes(length).toString("hex");
+
+export const generateOTP = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();

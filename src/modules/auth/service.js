@@ -6,44 +6,86 @@ import {
   generateAccessToken,
   generateRefreshToken,
   generateToken,
+  generateOTP,
 } from "../../utils/generateToken.js";
 import { sendEmail } from "../../utils/email.js";
 // dotenv.config();
 const prisma = new PrismaClient();
-
-export const registerUser = async (email, password) => {
+export const registerUser = async ({ email, password }) => {
+  // Check if the user already exists
   const existingUser = await prisma.user.findUnique({ where: { email } });
+  console.log(`${existingUser} Verify Email`);
   if (existingUser) throw new Error("Email already in use");
-  const verificationToken = generateToken();
+
+  // Generate OTP and hash the password
+  const otp = generateOTP();
   const hashedPassword = await bcrypt.hash(password, 10);
+  const emailOtpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiration
+
+  // Create the user with OTP
   const user = await prisma.user.create({
-    data: { email, password: hashedPassword, verificationToken },
+    data: {
+      email,
+      password: hashedPassword,
+      emailOtp: otp,
+      emailOtpExpires,
+    },
+    select: {
+      id: true,
+      email: true,
+      createdAt: true,
+    },
   });
-  const verificationLink = `${config.get(
-    "frontendUrl"
-  )}/verify-email?token=${verificationToken}`;
+
+  // Send verification email with OTP
   await sendEmail(
     email,
-    "Verify Your Email",
-    `<a href="${verificationLink}">Click to Verify</a>`
+    "Verify Your Email Address",
+    `Your verification code is: ${otp}`
   );
-  const accessToken = generateAccessToken(user.id);
-  const refreshToken = generateRefreshToken(user.id);
-  return user, accessToken, refreshToken;
+
+  return user;
 };
 
-export const verifyEmailService = async (token) => {
+export const verifyEmailService = async (otp) => {
+  // Find user with valid OTP
   const user = await prisma.user.findFirst({
-    where: { verificationToken: token },
+    where: { 
+      emailOtp: otp, 
+      emailOtpExpires: { gt: new Date() } // Check if OTP is not expired
+    },
   });
-  if (!user) throw new Error("Invalid verification token");
 
+  if (!user) {
+    throw new Error("Invalid or expired verification OTP");
+  }
+
+  // Generate tokens
+  const accessToken = generateAccessToken(user.id);
+  const refreshToken = generateRefreshToken(user.id);
+
+  // Update user record
   await prisma.user.update({
     where: { id: user.id },
-    data: { emailVerified: true, verificationToken: null },
+    data: {
+      emailVerified: true, // Mark email as verified
+      emailOtp: null, // Clear OTP
+      emailOtpExpires: null, // Clear OTP expiration
+      refreshToken, // Store refresh token
+    },
   });
 
-  return { message: "Email verified successfully" };
+  // Return tokens
+  return {
+    accessToken,
+    refreshToken,
+    user
+    // user: {
+    //   id: user.id,
+    //   email: user.email,
+    //   emailVerified: true, // Confirm email is now verified
+    // },
+  };
 };
 
 export const loginUser = async (email, password) => {
@@ -86,39 +128,69 @@ export const logoutUser = async (userId) => {
 };
 
 export const requestPasswordResetService = async (email) => {
+  // Find user by email
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) throw new Error("User not found");
+  if (!user) {
+    // Return generic message to prevent email enumeration
+    return {
+      message: "If an account exists with this email, a reset OTP will be sent",
+    };
+  }
 
-  const resetToken = generateToken();
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000);// Expires in 30 minutes
+  // Generate OTP and set expiration
+  const resetOTP = generateOTP();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes expiration
 
+  // Update user with reset OTP
   await prisma.user.update({
     where: { id: user.id },
-    data: { resetPasswordToken: resetToken, resetPasswordExpires: expiresAt },
+    data: {
+      resetPasswordOtp: resetOTP,
+      resetPasswordOtpExpires: expiresAt,
+    },
   });
 
-  const resetLink = `${config.get(
-    "frontendUrl"
-  )}/reset-password?token=${resetToken}`;
-  await sendEmail(
-    email,
-    "Reset Your Password",
-    `<a href="${resetLink}">Reset Password</a>`
-  );
+  // Prepare email content
+  const emailContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #2563eb;">Password Reset Request</h2>
+      <p>Your password reset code is:</p>
+      <div style="font-size: 24px; letter-spacing: 3px; 
+           padding: 10px 20px; background: #f3f4f6; 
+           display: inline-block; border-radius: 4px;">
+        ${resetOTP}
+      </div>
+      <p style="margin-top: 20px; color: #6b7280;">
+        This code will expire in 30 minutes. If you didn't request this,
+        please ignore this email or contact support.
+      </p>
+    </div>
+  `;
 
-  return { message: "Password reset email sent successfully" };
+  // Send email
+  await sendEmail(email, "Password Reset Request", emailContent);
+
+  return {
+    message: "If an account exists with this email, a reset OTP will be sent",
+    success: true,
+  };
 };
-
-export const resetPasswordService = async (token, newPassword) => {
+export const resetPasswordService = async (otp, newPassword) => {
+  // Validate OTP and check expiration
   const user = await prisma.user.findFirst({
-    where: { resetPasswordToken: token },
+    where: {
+      resetPasswordOtp: otp,
+      resetPasswordOtpExpires: { gt: new Date() },
+    },
   });
 
-  if (!user) throw new Error("Invalid or expired token");
+  if (!user) {
+    throw new Error("Invalid or expired OTP. Please request a new one.");
+  }
 
-  // Ensure resetPasswordExpires exists and is still valid
-  if (!user.resetPasswordExpires || new Date(user.resetPasswordExpires) < new Date()) {
-    throw new Error("Reset token has expired. Please request a new one.");
+  // Validate new password
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Password must be at least 8 characters long");
   }
 
   // Hash the new password
@@ -129,10 +201,22 @@ export const resetPasswordService = async (token, newPassword) => {
     where: { id: user.id },
     data: {
       password: hashedPassword,
-      resetPasswordToken: null,
-      resetPasswordExpires: null,
+      resetPasswordOtp: null,
+      resetPasswordOtpExpires: null,
+      refreshToken: null, // Invalidate all refresh tokens
     },
   });
 
-  return { message: "Password reset successful. You can now log in with your new password." };
+  // Send confirmation email
+  await sendEmail(
+    user.email,
+    "Password Changed Successfully",
+    `Your password was successfully changed on ${new Date().toLocaleString()}`
+  );
+
+  return {
+    success: true,
+    message:
+      "Password reset successful. You can now log in with your new password.",
+  };
 };
