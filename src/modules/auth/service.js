@@ -50,9 +50,9 @@ export const registerUser = async ({ email, password }) => {
 export const verifyEmailService = async (otp) => {
   // Find user with valid OTP
   const user = await prisma.user.findFirst({
-    where: { 
-      emailOtp: otp, 
-      emailOtpExpires: { gt: new Date() } // Check if OTP is not expired
+    where: {
+      emailOtp: otp,
+      emailOtpExpires: { gt: new Date() }, // Check if OTP is not expired
     },
   });
 
@@ -79,7 +79,7 @@ export const verifyEmailService = async (otp) => {
   return {
     accessToken,
     refreshToken,
-    user
+    user,
     // user: {
     //   id: user.id,
     //   email: user.email,

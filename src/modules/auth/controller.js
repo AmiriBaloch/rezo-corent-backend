@@ -78,7 +78,7 @@ export const verifyEmail = async (req, res) => {
 
     // Verify email using service
     const { user, refreshToken, accessToken } = await verifyEmailService(otp);
-  
+
     // Successful response
     res.status(200).json({
       success: true,
@@ -124,7 +124,15 @@ export const login = async (req, res) => {
       email,
       password
     );
-    res.json({ message: "Login successful", accessToken, refreshToken, user });
+    res.json({
+      message: "Login successful",
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        emailVerified: user.emailVerified,
+      },
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
