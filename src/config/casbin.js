@@ -19,19 +19,6 @@ export const initializeCasbin = async () => {
 
       const modelPath = path.resolve("./src/config/casbin/model.conf");
       const enforcer = await newEnforcer(modelPath, adapter);
-      await enforcer.addPolicies([
-        ["systemAdmin", "*", "*"], // Allow all actions on all resources
-        ["user", "/protected", "read"], // Example user policy
-      ]);
-      await enforcer.addGroupingPolicy(
-        "64ac4941-8bea-4ac0-a623-0b1a164edbbe",
-        "systemAdmin"
-      );
-      console.log(await enforcer.getPolicy());
-      const roles = await enforcer.getRolesForUser(
-        "64ac4941-8bea-4ac0-a623-0b1a164edbbe"
-      );
-      console.log("User roles:", roles);
       if (!enforcer.getModel()) throw new Error("Failed to load Casbin model");
       const policies = await enforcer.getNamedPolicy("p");
       if (!policies.some((p) => p[1] === "*")) {

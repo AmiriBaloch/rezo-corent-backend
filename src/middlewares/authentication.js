@@ -11,10 +11,8 @@ let enforcer;
 initializeCasbin()
   .then((casbinInstance) => {
     enforcer = casbinInstance;
-    console.log("✅ Casbin policy loaded successfully");
   })
   .catch((error) => {
-    console.error("❌ Failed to load Casbin:", error);
     process.exit(1);
   });
 
@@ -35,7 +33,6 @@ const authMiddleware = (options = {}) => {
             return next(new AuthError("Authentication failed"));
           }
 
-          console.log(`[AUTH] User authenticated: ${user.id}`);
 
           if (!user.isActive)
             return next(new PermissionError("Account deactivated"));
@@ -55,16 +52,12 @@ const authMiddleware = (options = {}) => {
               code: "AUTHZ_INITIALIZING",
             });
           }
-          // Debugging: Log the input path
-          console.log("Input Path:", req.path);
-          console.log("Type of Path:", typeof req.path);
+         
 
           const resource = normalizeResource(req.path);
-          console.log("Normalized resource:", resource); // Debugging
           const action = req.method.toLowerCase();
 
           const hasAccess = await enforcer.enforce(user.id, resource, action);
-          console.log('Enforcement Result:', hasAccess); // Debugging
 
           if (!hasAccess) {
             logger.warn(
