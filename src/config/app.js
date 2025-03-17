@@ -11,6 +11,7 @@ import cookieParser from "cookie-parser";
 import { errorHandler } from "../middlewares/errorHandler.js";
 import initializePassport from "./passport.js";
 import passport from "passport";
+// import { initializeCasbin } from "../config/casbin.js";
 
 const app = express();
 
@@ -38,15 +39,18 @@ app.use(
 // CORS Configuration
 // ========================
 app.use(
-  cors(
-    {
+  cors({
     origin: "*", // Update for production security
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
-  }
-)
+  })
 );
 
+//
+//===================================== 
+// Initialize Casbin on startup
+//======================================
+// initializeCasbin()
 // ========================
 // Rate Limiting
 // ========================
@@ -76,7 +80,7 @@ app.use(httpLogger);
 // ========================
 // Database Connections
 // ========================
-await connectDB(); // Ensure PostgreSQL is connected
+connectDB(); // Ensure PostgreSQL is connected
 
 // ========================
 // Application Routes
@@ -87,8 +91,7 @@ app.use("/api", routes);
 // Health Check
 // ========================
 app.get("/", async (req, res) => {
-  const dbStatus = await prisma
-    .$queryRaw`SELECT 1`
+  const dbStatus = await prisma.$queryRaw`SELECT 1`
     .then(() => "healthy")
     .catch(() => "unhealthy");
 

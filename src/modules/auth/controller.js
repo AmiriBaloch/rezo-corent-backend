@@ -1,118 +1,111 @@
 import {
   registerUser,
   loginUser,
-  refreshToken,
+  refreshToken as refreshTokenService,
   logoutUser,
   verifyEmailService,
   requestPasswordResetService,
   resetPasswordService,
 } from "./service.js";
+import logger from "../../config/logger.js";
+import config from "../../config/env.js";
+import { ValidationError } from "../../utils/apiError.js";
+
+const setRefreshTokenCookie = (res, token) => {
+  res.cookie("refreshToken", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/api/auth/refresh",
+    maxAge: config.get("jwtRefreshExpiration") * 1000,
+  });
+};
 
 export const register = async (req, res) => {
   try {
-    // Validate input
     const { email, password } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        error: "Email and password are required",
+        code: "MISSING_CREDENTIALS",
+        message: "Email and password are required",
       });
     }
 
-    // Register user
     const result = await registerUser({ email, password });
 
-    // Set secure HTTP-only cookie for refresh token
-    res.cookie("refreshToken", result.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    // Successful response
     res.status(201).json({
       success: true,
-      message:
-        "User registered successfully. Please check your email to verify your account.",
+      message: "Registration successful. Check email for verification code.",
       data: {
-        user: {
-          id: result.user.id,
-          email: result.user.email,
-          createdAt: result.user.createdAt,
-        },
-        accessToken: result.accessToken,
+        userId: result.id,
+        email: result.email,
+        verificationRequired: true,
       },
     });
   } catch (error) {
-    // Log the error for debugging
-    console.error("Registration error:", error);
+    logger.error(`Registration error: ${error.message}`);
 
-    // Handle specific error types
-    let statusCode = 400;
-    let errorMessage = error.message;
+    const status = error.statusCode || 500;
+    const response = {
+      success: false,
+      code: error.code || "REGISTRATION_ERROR",
+      message: error.message,
+    };
 
-    if (error.message.includes("already in use")) {
-      statusCode = 409; // Conflict
+    if (process.env.NODE_ENV === "development") {
+      response.stack = error.stack;
     }
 
-    res.status(statusCode).json({
-      success: false,
-      error: errorMessage,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
-    });
+    res.status(status).json(response);
   }
 };
 
 export const verifyEmail = async (req, res) => {
   try {
-    // Validate input
-    const { otp } = req.query;
-    if (!otp || otp.length !== 6) {
+    const { code } = req.body;
+
+    if (!code || code.length !== 6) {
       return res.status(400).json({
         success: false,
-        error: "Invalid OTP format. OTP must be 6 digits.",
+        code: "INVALID_OTP_FORMAT",
+        message: "Verification code must be 6 digits",
       });
     }
 
-    // Verify email using service
-    const { user, refreshToken, accessToken } = await verifyEmailService(otp);
+    const context = {
+      ipAddress: req.ip,
+      deviceInfo: req.headers["user-agent"],
+    };
 
-    // Successful response
-    res.status(200).json({
+    const { accessToken, refreshToken, user } = await verifyEmailService(
+      code,
+      context
+    );
+
+    setRefreshTokenCookie(res, refreshToken);
+
+    res.json({
       success: true,
       message: "Email verified successfully",
       data: {
         user: {
           id: user.id,
           email: user.email,
-          emailVerified: user.emailVerified,
+          isVerified: user.isVerified,
         },
         accessToken,
-        refreshToken,
       },
     });
   } catch (error) {
-    // Log the error for debugging
-    console.error("Email verification error:", error);
+    logger.error(`Email verification error: ${error.message}`);
 
-    // Handle specific error types
-    let statusCode = 400;
-    let errorMessage = error.message;
-
-    if (error.message.includes("expired")) {
-      statusCode = 410; // Gone
-      errorMessage = "OTP has expired. Please request a new one.";
-    } else if (error.message.includes("invalid")) {
-      statusCode = 401; // Unauthorized
-      errorMessage = "Invalid OTP. Please check your code and try again.";
-    }
-
-    res.status(statusCode).json({
+    const status = error instanceof ValidationError ? 400 : 500;
+    res.status(status).json({
       success: false,
-      error: errorMessage,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+      code: "VERIFICATION_FAILED",
+      message: error.message,
     });
   }
 };
@@ -120,126 +113,165 @@ export const verifyEmail = async (req, res) => {
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const { user, accessToken, refreshToken } = await loginUser(
-      email,
-      password
-    );
+    const context = {
+      ipAddress: req.ip,
+      deviceInfo: req.headers["user-agent"],
+    };
+
+    const result = await loginUser(email, password, context);
+    if (result.mfaRequired) {
+      return res.status(202).json({
+        success: true,
+        code: "MFA_REQUIRED",
+        message: "2FA authentication required",
+      });
+    }
+
+    setRefreshTokenCookie(res, result.refreshToken);
+
     res.json({
-      message: "Login successful",
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        emailVerified: user.emailVerified,
+      success: true,
+      data: {
+        user: result.user,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        sessionId: result.sessionId,
       },
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    logger.error(`Login error: ${error.message}`);
+
+    const status = error.statusCode || 401;
+    res.status(status).json({
+      success: false,
+      code: "AUTHENTICATION_FAILED",
+      message: error.message,
+    });
   }
 };
+
 export const refreshAccessToken = async (req, res) => {
   try {
-    const token = req.cookies?.refreshToken;
-    if (!token)
-      return res.status(400).json({ error: "Refresh token is required" });
+    const token = req.cookies.refreshToken || req.body.refreshToken;
+    const context = {
+      ipAddress: req.ip,
+      deviceInfo: req.headers["user-agent"],
+    };
 
-    const { accessToken } = await refreshToken(token);
-    res.json({ accessToken });
+    const { accessToken, refreshToken } = await refreshTokenService(
+      token,
+      context
+    );
+
+    setRefreshTokenCookie(res, refreshToken);
+
+    res.json({
+      success: true,
+      data: { accessToken, refreshToken },
+    });
   } catch (error) {
-    res.status(401).json({ error: error.message });
+    logger.error(`Token refresh error: ${error.message}`);
+
+    res.clearCookie("refreshToken");
+    res.status(401).json({
+      success: false,
+      code: "TOKEN_REFRESH_FAILED",
+      message: "Session expired. Please login again.",
+    });
   }
 };
 
 export const logout = async (req, res) => {
   try {
-    const userId = req.user.id;
-    await logoutUser(userId);
-    res.json({ message: "Logout successful" });
+    await logoutUser(req.user.id, req.user.sessionId);
+
+    res.clearCookie("refreshToken", {
+      path: "/api/auth/refresh",
+      domain: process.env.COOKIE_DOMAIN,
+    });
+
+    res.json({
+      success: true,
+      message: "Successfully logged out",
+    });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    logger.error(`Logout error: ${error.message}`);
+    res.status(500).json({
+      success: false,
+      code: "LOGOUT_FAILED",
+      message: "Failed to terminate session",
+    });
   }
 };
 
 export const requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body;
-    const response = await requestPasswordResetService(email);
-    res.json(response);
+    await requestPasswordResetService(email);
+
+    res.json({
+      success: true,
+      message: "If account exists, reset instructions will be sent",
+    });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    logger.error(`Password reset request error: ${error.message}`);
+    res.status(500).json({
+      success: false,
+      code: "RESET_REQUEST_FAILED",
+      message: "Failed to process reset request",
+    });
   }
 };
 
 export const resetPassword = async (req, res) => {
   try {
-    // Validate input
-    const { otp, newPassword } = req.body;
+    const { code, newPassword } = req.body;
+    const context = { ipAddress: req.ip };
 
-    if (!otp || otp.length !== 6) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid OTP format. OTP must be 6 digits.",
-      });
-    }
+    await resetPasswordService(code, newPassword, context);
 
-    if (!newPassword || newPassword.length < 8) {
-      return res.status(400).json({
-        success: false,
-        error: "Password must be at least 8 characters long.",
-      });
-    }
+    res.clearCookie("refreshToken");
 
-    // Reset password using service
-    const result = await resetPasswordService(otp, newPassword);
-
-    // Clear refresh token cookie if exists
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
-
-    // Successful response
-    res.status(200).json({
+    res.json({
       success: true,
-      message:
-        "Password reset successfully. Please login with your new password.",
-      data: {
-        email: result.email,
-        passwordChangedAt: result.passwordChangedAt,
-      },
+      message: "Password reset successful. Please login with new credentials.",
     });
   } catch (error) {
-    // Log the error for debugging
-    console.error("Password reset error:", error);
+    logger.error(`Password reset error: ${error.message}`);
 
-    // Handle specific error types
-    let statusCode = 400;
-    let errorMessage = error.message;
-
-    if (error.message.includes("expired")) {
-      statusCode = 410; // Gone
-      errorMessage = "OTP has expired. Please request a new one.";
-    } else if (error.message.includes("invalid")) {
-      statusCode = 401; // Unauthorized
-      errorMessage = "Invalid OTP. Please check your code and try again.";
-    }
-
-    res.status(statusCode).json({
+    const status = error instanceof ValidationError ? 400 : 500;
+    res.status(status).json({
       success: false,
-      error: errorMessage,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+      code: "PASSWORD_RESET_FAILED",
+      message: error.message,
     });
   }
 };
 
 export const googleAuthCallback = (req, res) => {
   try {
-    res.json({ message: "Google login successful", user: req.user });
+    const { accessToken, refreshToken, user } = req.authInfo;
+
+    setRefreshTokenCookie(res, refreshToken);
+
+    res.redirect(
+      `${config.get("frontendUrl")}/auth/success?token=${accessToken}`
+    );
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    logger.error(`Google auth error: ${error.message}`);
+    res.redirect(`${config.get("frontendUrl")}/auth/error?code=OAUTH_FAILED`);
   }
 };
+
 export const protectedRoute = (req, res) => {
-  res.json({ message: "Access granted", user: req.user });
+  res.json({
+    success: true,
+    data: {
+      user: {
+        id: req.user.id,
+        email: req.user.email,
+        roles: req.user.roles,
+      },
+    },
+  });
 };

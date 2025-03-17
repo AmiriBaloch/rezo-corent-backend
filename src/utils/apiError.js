@@ -4,14 +4,7 @@ import { logger } from "../config/logger.js";
  * Base API Error Class
  */
 export class ApiError extends Error {
-  constructor(
-    code,
-    statusCode,
-    message,
-    details,
-    errors = [],
-    metadata = {}
-  ) {
+  constructor(code, statusCode, message, details, errors = [], metadata = {}) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;
@@ -88,17 +81,8 @@ export class ConflictError extends ApiError {
 }
 
 export class ValidationError extends ApiError {
-  constructor(message, errors = []) {
-    super(
-      "VALIDATION_ERROR",
-      422,
-      message,
-      "Validation Error",
-      errors.map((err) => ({
-        path: Array.isArray(err.path) ? err.path.join(".") : err.path,
-        message: err.message,
-      }))
-    );
+  constructor(message = "Validation Error") {
+    super("VALIDATION_ERROR", 422, message, "Validation Error");
   }
 }
 
@@ -111,6 +95,11 @@ export class TooManyRequestsError extends ApiError {
 export class InternalServerError extends ApiError {
   constructor(message = "Internal server error") {
     super("INTERNAL_SERVER_ERROR", 500, message, "Internal server error");
+  }
+}
+export class AuthError extends ApiError {
+  constructor(message = "Authentication error") {
+    super("AUTH_ERROR", 401, message, "Authentication error");
   }
 }
 

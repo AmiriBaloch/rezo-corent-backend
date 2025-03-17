@@ -10,24 +10,87 @@ import {
   googleAuthCallback,
   protectedRoute,
 } from "./controller.js";
-import authenticateJWT from "../../middlewares/authentication.js";
 import passport from "passport";
+import rateLimit from "express-rate-limit";
+import requestContext from "../../middlewares/context.js";
+import validate from "../../middlewares/validate.js";
+import authSchemas from "./validation.schemas.js";
+import authMiddleware from "../../middlewares/authentication.js";
+// Rate limiting configuration
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Limit each IP to 20 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const router = express.Router();
 
-router.post("/register", register);
-router.post("/login", login);
-router.post("/refresh-token", refreshAccessToken);
-router.post("/logout", authenticateJWT, logout);
-router.get("/protected", authenticateJWT, protectedRoute);
-router.get("/verify-email", verifyEmail);
-router.post("/password-reset-request", requestPasswordReset);
-router.post("/reset-password", resetPassword);
+// Public routes with rate limiting and context
+router.use(requestContext);
 
-// Google OAuth
-router.get(
-  "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+router.post(
+  "/register",
+  authLimiter,
+  // validate(authSchemas.registerSchema),
+  register
 );
-router.get("/google/callback", googleAuthCallback);
+
+router.post("/login", authLimiter, 
+  // (authSchemas.loginSchema), 
+  login);
+
+router.post(
+  "/verify-email",
+  authLimiter,
+  // validate(authSchemas.verifyEmailSchema),
+  verifyEmail
+);
+
+router.post(
+  "/refresh-token",
+  // validate(authSchemas.refreshTokenSchema),
+  refreshAccessToken
+);
+
+// Password reset flow
+router.post(
+  "/password-reset",
+  authLimiter,
+  // validate(authSchemas.passwordResetRequestSchema),
+  requestPasswordReset
+);
+
+router.post(
+  "/password-reset/confirm",
+  authLimiter,
+  // validate(authSchemas.passwordResetConfirmSchema),
+  resetPassword
+);
+
+// Google OAuth with state validation
+router.get("/google", (req, res, next) => {
+  req.session.state = crypto.randomBytes(16).toString("hex");
+  passport.authenticate("google", {
+    state: req.session.state,
+    session: false,
+    scope: ["profile", "email"],
+  })(req, res, next);
+});
+
+router.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    failureRedirect: "/auth/error",
+    session: false,
+  }),
+  googleAuthCallback
+);
+
+// Authenticated routes
+router.use(authMiddleware());
+
+router.post("/logout", logout);
+router.get("/protected", protectedRoute);
 
 export default router;

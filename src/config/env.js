@@ -36,6 +36,30 @@ const config = convict({
     env: "REFRESH_SECRET",
     sensitive: true,
   },
+  jwtAccessExpiration: {
+    doc: "JWT Access Token Expiration Time in milliseconds",
+    format: Number,
+    default: 900000, // 15 minutes in milliseconds
+    env: "JWT_ACCESS_EXPIRATION",
+  },
+  jwtRefreshExpiration: {
+    doc: "JWT Refresh Token Expiration Time in milliseconds",
+    format: Number,
+    default: 604800000,
+    env: "JWT_REFRESH_EXPIRATION",
+  },
+  jwtIssuer: {
+    doc: "JWT Issuer",
+    format: String,
+    default: "your_jwt_issuer",
+    env: "JWT_ISSUER",
+  },
+  jwtAudience: {
+    doc: "JWT Audience",
+    format: String,
+    default: "your_jwt_audience",
+    env: "JWT_AUDIENCE",
+  },
   redisUrl: {
     doc: "Redis connection URL",
     format: String,
@@ -60,6 +84,12 @@ const config = convict({
     default: "",
     env: "GOOGLE_CLIENT_SECRET",
     sensitive: true,
+  },
+  googleCallbackURL: {
+    doc: "Google OAuth callback URL",
+    format: String,
+    default: "/api/auth/google/callback",
+    env: "GOOGLE_CALLBACK_URL",
   },
   email: {
     host: {

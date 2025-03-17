@@ -48,3 +48,10 @@ prisma/migrations/
 # Temporary files
 tmp/
 temp/
+
+# Test files
+*.test.js
+*.spec.js
+
+# Text files
+*.txt

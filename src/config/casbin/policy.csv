@@ -1,0 +1,2 @@
+p, systemAdmin, *, *
+p, systemAdmin, /protected, get

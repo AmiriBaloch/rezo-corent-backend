@@ -13,18 +13,222 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// --------------------------------------------------
+// Core User Model with Security Features
+// --------------------------------------------------
 model User {
-  id                      String    @id @default(uuid())
-  email                   String    @unique
-  password                String
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
-  emailVerified           Boolean   @default(false)
-  emailOtp                String?   @db.VarChar(6)
-  emailOtpExpires         DateTime?
-  resetPasswordOtp        String?   @db.VarChar(6)
-  resetPasswordOtpExpires DateTime?
-  refreshToken            String?
+  id                  String              @id @default(uuid()) @db.Uuid
+  email               String              @unique @db.VarChar(255)
+  username            String?             @unique @db.VarChar(50)
+  passwordHash        String?             @map("password_hash")  // Nullable for OAuth users
+  isActive            Boolean             @default(true) @map("is_active")
+  isVerified          Boolean             @default(false) @map("is_verified")
+  mfaEnabled          Boolean             @default(false) @map("mfa_enabled")
+  lastLogin           DateTime?           @map("last_login")
+  failedLoginAttempts Int                 @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?           @map("locked_until")
+  profile             Profile?
+  sessions            Session[]
+  roles               UserRole[]
+  auditLogs           AuditLog[]
+  passwordResets      PasswordReset[]
+  otpVerifications    OTPVerification[]
+  twoFactorAuth       TwoFactorAuth?
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
 
- @@map("users") 
+  @@index([email, isActive])
+  @@index([username, isActive])
+  @@map("users")
+}
+
+// --------------------------------------------------
+// Enhanced OTP Verification System
+// --------------------------------------------------
+model OTPVerification {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @db.Uuid
+  type         String     @db.VarChar(20) // EMAIL_VERIFICATION, PASSWORD_RESET, LOGIN_2FA
+  code         String     @db.VarChar(6)  // 6-digit code
+  attempts     Int        @default(0)
+  maxAttempts  Int        @default(3)
+  expiresAt    DateTime   @map("expires_at")
+  verifiedAt   DateTime?  @map("verified_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  user         User       @relation(fields: [userId], references: [id])
+
+  @@index([userId, type])
+  @@index([expiresAt])
+  @@map("otp_verifications")
+}
+
+// --------------------------------------------------
+// Updated Password Reset System
+// --------------------------------------------------
+model PasswordReset {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  token       String     @unique @db.VarChar(512)
+  expiresAt   DateTime   @map("expires_at")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  user        User       @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_resets")
+}
+
+// --------------------------------------------------
+// Enhanced Two-Factor Authentication
+// --------------------------------------------------
+model TwoFactorAuth {
+  id            String     @id @default(uuid()) @db.Uuid
+  userId        String     @unique @db.Uuid
+  secret        String     @db.VarChar(64)
+  backupCodes   String[]   @db.VarChar(64)  // Hashed backup codes
+  recoveryToken String?    @unique @map("recovery_token") @db.VarChar(512)
+  lastUsed      DateTime?  @map("last_used")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  user          User       @relation(fields: [userId], references: [id])
+
+  @@map("two_factor_auth")
+}
+
+
+// --------------------------------------------------
+// Profile Information (Separate for Security)
+// --------------------------------------------------
+model Profile {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
+  firstName   String?   @map("first_name") @db.VarChar(50)
+  lastName    String?   @map("last_name") @db.VarChar(50)
+  phone       String?   @db.VarChar(20)
+  avatarUrl   String?   @map("avatar_url") @db.VarChar(255)
+  dateOfBirth DateTime? @map("date_of_birth")
+  user        User      @relation(fields: [userId], references: [id])
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("profiles")
+}
+
+// --------------------------------------------------
+// Authentication & Session Management
+// --------------------------------------------------
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  sessionToken String   @unique @map("session_token") @db.VarChar(512)
+  refreshToken String   @unique @map("refresh_token") @db.VarChar(512)
+  deviceInfo   String?  @map("device_info") @db.VarChar(255)
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+
+// --------------------------------------------------
+// RBAC/ABAC Authorization System
+// --------------------------------------------------
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  name        String           @unique @db.VarChar(50)
+  description String?          @db.VarChar(255)
+  isDefault   Boolean          @default(false) @map("is_default")
+  isSystem    Boolean          @default(false) @map("is_system")
+  permissions RolePermission[]
+  users       UserRole[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([name, isDefault])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  resource    String           @db.VarChar(100)
+  action      String           @db.VarChar(50)
+  description String?          @db.VarChar(255)
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@unique([resource, action])
+  @@index([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  conditions   Json? // ABAC conditions
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@id([roleId, permissionId])
+  @@index([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId     String    @db.Uuid
+  roleId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id])
+  role       Role      @relation(fields: [roleId], references: [id])
+  assignedBy String    @db.Uuid
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@id([userId, roleId])
+  @@index([userId, roleId])
+  @@map("user_roles")
+}
+
+// --------------------------------------------------
+// Audit & Compliance
+// --------------------------------------------------
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actionType String   @map("action_type") @db.VarChar(50)
+  entityType String   @map("entity_type") @db.VarChar(100)
+  entityId   String   @map("entity_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(255)
+  oldValues  Json?
+  newValues  Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([actionType])
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// --------------------------------------------------
+// Casbin Integration for Policy Enforcement
+// --------------------------------------------------
+model CasbinRule {
+  id    Int     @id @default(autoincrement())
+  ptype String  @db.VarChar(10)
+  v0    String? @db.VarChar(100)
+  v1    String? @db.VarChar(100)
+  v2    String? @db.VarChar(100)
+  v3    String? @db.VarChar(100)
+  v4    String? @db.VarChar(100)
+  v5    String? @db.VarChar(100)
+
+  @@index([ptype, v0, v1, v2, v3])
+  @@map("casbin_rules")
 }

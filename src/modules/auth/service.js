@@ -5,218 +5,356 @@ import config from "../../config/env.js";
 import {
   generateAccessToken,
   generateRefreshToken,
-  generateToken,
   generateOTP,
 } from "../../utils/generateToken.js";
 import { sendEmail } from "../../utils/email.js";
-// dotenv.config();
+import logger from "../../config/logger.js";
+import {
+  ConflictError,
+  ValidationError,
+  AuthError,
+} from "../../utils/apiError.js";
+
+const PASSWORD_REGEX =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 const prisma = new PrismaClient();
+
 export const registerUser = async ({ email, password }) => {
-  // Check if the user already exists
-  const existingUser = await prisma.user.findUnique({ where: { email } });
-  console.log(`${existingUser} Verify Email`);
-  if (existingUser) throw new Error("Email already in use");
+  // if (!PASSWORD_REGEX.test(password)) {
+  //   throw new ValidationError("Password must contain 8+ chars with uppercase, lowercase, number, and special character");
+  // }
 
-  // Generate OTP and hash the password
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  if (existingUser) {
+    logger.warn(`Registration attempt with existing email: ${email}`);
+    throw new ConflictError("Email already registered");
+  }
+
+  // Hash password and OTP
+  const hashedPassword = await bcrypt.hash(password, 12);
   const otp = generateOTP();
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const emailOtpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiration
 
-  // Create the user with OTP
+  // Create user with OTP verification
   const user = await prisma.user.create({
     data: {
       email,
-      password: hashedPassword,
-      emailOtp: otp,
-      emailOtpExpires,
+      passwordHash: hashedPassword,
+      otpVerifications: {
+        create: {
+          type: "EMAIL_VERIFICATION",
+          code: otp,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      },
     },
-    select: {
-      id: true,
-      email: true,
-      createdAt: true,
-    },
+    select: { id: true, email: true, createdAt: true },
   });
 
-  // Send verification email with OTP
+  // Send verification email
   await sendEmail(
     email,
-    "Verify Your Email Address",
-    `Your verification code is: ${otp}`
-  );
+    "Verify Your Email",
+    `Your verification code is: ${otp}`,
+    `<strong>${otp}</strong>`
+  ).catch((error) => {
+    logger.error(`Email send failed: ${error.message}`);
+    throw new Error("Failed to send verification email");
+  });
 
   return user;
 };
 
-export const verifyEmailService = async (otp) => {
-  // Find user with valid OTP
-  const user = await prisma.user.findFirst({
+export const verifyEmailService = async (code, context) => {
+  // Find valid OTP verification
+  const verification = await prisma.oTPVerification.findFirst({
     where: {
-      emailOtp: otp,
-      emailOtpExpires: { gt: new Date() }, // Check if OTP is not expired
+      code: { equals: code },
+      type: "EMAIL_VERIFICATION",
+      expiresAt: { gt: new Date() },
+      attempts: { lt: 3 },
+    },
+    include: { user: true },
+  });
+
+  if (!verification) {
+    throw new ValidationError("Invalid or expired verification code");
+  }
+
+  // Update verification attempts
+  await prisma.oTPVerification.update({
+    where: { id: verification.id },
+    data: { attempts: { increment: 1 } },
+  });
+
+  // Verify user email
+  const user = await prisma.user.update({
+    where: { id: verification.user.id },
+    data: { isVerified: true },
+    select: {
+      id: true,
+      email: true,
+      isVerified: true,
+      roles: true,
+    },
+  });
+
+  // Create session
+  const [accessToken, refreshToken] = await Promise.all([
+    generateAccessToken(user.id, roles),
+    generateRefreshToken(user.id, roles),
+  ]);
+
+  await prisma.session.create({
+    data: {
+      userId: user.id,
+      sessionToken: accessToken,
+      refreshToken,
+      expiresAt: new Date(
+        Date.now() + config.get("jwtRefreshExpiration") * 1000
+      ),
+      deviceInfo: context.deviceInfo,
+      ipAddress: context.ipAddress,
+    },
+  });
+
+  // Cleanup OTP
+  await prisma.oTPVerification.deleteMany({
+    where: { userId: user.id, type: "EMAIL_VERIFICATION" },
+  });
+
+  return { accessToken, refreshToken, user };
+};
+
+export const loginUser = async (email, password, context) => {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      passwordHash: true,
+      isActive: true,
+      isVerified: true,
+      mfaEnabled: true,
     },
   });
 
   if (!user) {
-    throw new Error("Invalid or expired verification OTP");
+    logger.warn(`Login attempt for non-existent user: ${email}`);
+    throw new AuthError("Invalid credentials");
   }
 
-  // Generate tokens
-  const accessToken = generateAccessToken(user.id);
-  const refreshToken = generateRefreshToken(user.id);
+  if (!user.isActive) throw new AuthError("Account deactivated");
+  if (!user.isVerified) throw new AuthError("Account not verified");
 
-  // Update user record
-  await prisma.user.update({
-    where: { id: user.id },
+  const passwordValid = await bcrypt.compare(password, user.passwordHash);
+  if (!passwordValid) {
+    logger.warn(`Invalid password attempt for: ${email}`);
+    throw new AuthError("Invalid credentials");
+  }
+
+  // Handle MFA if enabled
+  if (user.mfaEnabled) {
+    const otp = await bcrypt.hash(generateOTP(), 6);
+    await prisma.otpVerification.create({
+      data: {
+        userId: user.id,
+        type: "LOGIN_2FA",
+        code: otp,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      },
+    });
+
+    await sendEmail(email, "2FA Login Code", `Your code is: ${otp}`);
+    return { mfaRequired: true };
+  }
+
+  // Create new session
+  const [accessToken, refreshToken] = await Promise.all([
+    generateAccessToken(user.id),
+    generateRefreshToken(user.id),
+  ]);
+
+  const newSession = await prisma.session.create({
     data: {
-      emailVerified: true, // Mark email as verified
-      emailOtp: null, // Clear OTP
-      emailOtpExpires: null, // Clear OTP expiration
-      refreshToken, // Store refresh token
+      userId: user.id,
+      sessionToken: accessToken,
+      refreshToken,
+      expiresAt: new Date(
+        Date.now() + config.get("jwtRefreshExpiration") * 1000
+      ),
+      deviceInfo: context.deviceInfo,
+      ipAddress: context.ipAddress,
     },
+    select: { id: true },
   });
 
-  // Return tokens
   return {
     accessToken,
     refreshToken,
-    user,
-    // user: {
-    //   id: user.id,
-    //   email: user.email,
-    //   emailVerified: true, // Confirm email is now verified
-    // },
+    sessionId: newSession.id,
+    user: await prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        email: true,
+        isVerified: true,
+      },
+    }),
   };
 };
 
-export const loginUser = async (email, password) => {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) throw new Error("Invalid credentials");
+export const refreshToken = async (token, context) => {
+  let decoded;
+  try {
+    decoded = jwt.verify(token, config.get("refreshSecret"), {
+      algorithms: ["HS256"],
+      issuer: config.get("jwtIssuer"),
+      audience: config.get("jwtAudience"),
+    });
+  } catch (error) {
+    logger.error(`JWT verification failed: ${error.message}`);
+    throw new AuthError("Invalid or expired refresh token");
+  }
 
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) throw new Error("Invalid credentials");
-
-  const accessToken = generateAccessToken(user.id);
-  const refreshToken = generateRefreshToken(user.id);
-
-  // Save refresh token in database
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken },
+  const session = await prisma.session.findFirst({
+    where: { userId: decoded.sub, refreshToken: token },
+    include: { user: true },
   });
 
-  return { user, accessToken, refreshToken };
+  if (!session || session.user.id !== decoded.sub) {
+    throw new AuthError("Invalid refresh token");
+  }
+
+  // Rotate tokens
+  // ✅ Rotate tokens securely
+  const newAccessToken = generateAccessToken(
+    session.user.id,
+    session.user.roles
+  );
+  const newRefreshToken = generateRefreshToken(
+    session.user.id,
+    session.user.roles
+  );
+
+  await prisma.session.update({
+    where: { id: session.id },
+    data: {
+      sessionToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      expiresAt: new Date(
+        Date.now() + config.get("jwtRefreshExpiration") * 1000
+      ),
+      ipAddress: context.ipAddress,
+      deviceInfo: context.deviceInfo,
+    },
+  });
+
+  return { accessToken: newAccessToken, refreshToken: newRefreshToken };
 };
 
-export const refreshToken = async (token) => {
-  if (!token) throw new Error("Refresh token is required");
-
-  const decoded = jwt.verify(token, config.get("refreshSecret"));
-  const user = await prisma.user.findUnique({ where: { id: decoded.id } });
-
-  if (!user || user.refreshToken !== token)
-    throw new Error("Invalid refresh token");
-
-  const newAccessToken = generateAccessToken(user);
-  return { accessToken: newAccessToken };
-};
-
-export const logoutUser = async (userId) => {
-  await prisma.user.update({
-    where: { id: userId },
-    data: { refreshToken: null },
+export const logoutUser = async (userId, sessionId) => {
+  await prisma.session.deleteMany({
+    where: { userId, id: sessionId },
   });
 };
 
 export const requestPasswordResetService = async (email) => {
-  // Find user by email
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    // Return generic message to prevent email enumeration
-    return {
-      message: "If an account exists with this email, a reset OTP will be sent",
-    };
-  }
-
-  // Generate OTP and set expiration
-  const resetOTP = generateOTP();
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes expiration
-
-  // Update user with reset OTP
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      resetPasswordOtp: resetOTP,
-      resetPasswordOtpExpires: expiresAt,
-    },
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
   });
 
-  // Prepare email content
-  const emailContent = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #2563eb;">Password Reset Request</h2>
-      <p>Your password reset code is:</p>
-      <div style="font-size: 24px; letter-spacing: 3px; 
-           padding: 10px 20px; background: #f3f4f6; 
-           display: inline-block; border-radius: 4px;">
-        ${resetOTP}
-      </div>
-      <p style="margin-top: 20px; color: #6b7280;">
-        This code will expire in 30 minutes. If you didn't request this,
-        please ignore this email or contact support.
-      </p>
-    </div>
-  `;
+  if (!user) {
+    logger.info(`Password reset request for unknown email: ${email}`);
+    return { message: "If account exists, reset instructions sent" };
+  }
 
-  // Send email
-  await sendEmail(email, "Password Reset Request", emailContent);
-
-  return {
-    message: "If an account exists with this email, a reset OTP will be sent",
-    success: true,
-  };
-};
-export const resetPasswordService = async (otp, newPassword) => {
-  // Validate OTP and check expiration
-  const user = await prisma.user.findFirst({
+  const existingOTP = await prisma.oTPVerification.findFirst({
     where: {
-      resetPasswordOtp: otp,
-      resetPasswordOtpExpires: { gt: new Date() },
+      userId: user.id,
+      type: "PASSWORD_RESET",
     },
   });
 
-  if (!user) {
-    throw new Error("Invalid or expired OTP. Please request a new one.");
+  const otp = generateOTP();
+
+  if (existingOTP) {
+    await prisma.oTPVerification.update({
+      where: { id: existingOTP.id },
+      data: {
+        code: otp,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        attempts: 0,
+      },
+    });
+  } else {
+    await prisma.oTPVerification.create({
+      data: {
+        userId: user.id,
+        type: "PASSWORD_RESET",
+        code: otp,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      },
+    });
   }
 
-  // Validate new password
-  if (!newPassword || newPassword.length < 8) {
-    throw new Error("Password must be at least 8 characters long");
+  try {
+    await sendEmail(
+      email,
+      "Password Reset Code",
+      `Your reset code is: ${otp}`,
+      `<strong>${otp}</strong>`
+    );
+  } catch (error) {
+    logger.error(`Failed to send password reset email: ${error.message}`);
+    throw new Error("Failed to send password reset email");
   }
 
-  // Hash the new password
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  return { message: "If account exists, reset instructions sent" };
+};
 
-  // Update user's password and clear reset fields
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      password: hashedPassword,
-      resetPasswordOtp: null,
-      resetPasswordOtpExpires: null,
-      refreshToken: null, // Invalidate all refresh tokens
+export const resetPasswordService = async (code, newPassword, context) => {
+  // if (!PASSWORD_REGEX.test(newPassword)) {
+  //   throw new ValidationError("Password must meet complexity requirements");
+  // }
+
+  const verification = await prisma.oTPVerification.findFirst({
+    where: {
+      code: { equals: code },
+      type: "PASSWORD_RESET",
+      expiresAt: { gt: new Date() },
+      attempts: { lt: 3 },
     },
+    include: { user: true },
   });
 
-  // Send confirmation email
+  if (!verification) {
+    throw new ValidationError("Invalid or expired reset code");
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+  await Promise.all([
+    prisma.user.update({
+      where: { id: verification.user.id },
+      data: { passwordHash: hashedPassword },
+    }),
+    prisma.oTPVerification.deleteMany({
+      where: { userId: verification.user.id, type: "PASSWORD_RESET" },
+    }),
+    prisma.session.deleteMany({
+      where: { userId: verification.user.id },
+    }),
+  ]);
+
   await sendEmail(
-    user.email,
-    "Password Changed Successfully",
-    `Your password was successfully changed on ${new Date().toLocaleString()}`
+    verification.user.email,
+    "Password Changed",
+    `Password changed from ${context.ipAddress}`,
+    `<p>Changed from IP: ${context.ipAddress}</p>`
   );
 
-  return {
-    success: true,
-    message:
-      "Password reset successful. You can now log in with your new password.",
-  };
+  return { success: true };
 };

@@ -44,3 +44,5 @@ export const httpLogger = morgan(config.get("env") === "production" ? "combined"
     write: (message) => logger.info(message.trim())
   }
 });
+
+export default logger
