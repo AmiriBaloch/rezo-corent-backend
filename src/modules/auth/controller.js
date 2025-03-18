@@ -262,16 +262,3 @@ export const googleAuthCallback = (req, res) => {
     res.redirect(`${config.get("frontendUrl")}/auth/error?code=OAUTH_FAILED`);
   }
 };
-
-export const protectedRoute = (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      user: {
-        id: req.user.id,
-        email: req.user.email,
-        roles: req.user.roles,
-      },
-    },
-  });
-};

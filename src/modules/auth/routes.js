@@ -8,7 +8,6 @@ import {
   requestPasswordReset,
   resetPassword,
   googleAuthCallback,
-  protectedRoute,
 } from "./controller.js";
 import passport from "passport";
 import rateLimit from "express-rate-limit";
@@ -32,24 +31,22 @@ router.use(requestContext);
 router.post(
   "/register",
   authLimiter,
-  // validate(authSchemas.registerSchema),
+  validate(authSchemas.registerSchema),
   register
 );
 
-router.post("/login", authLimiter, 
-  // (authSchemas.loginSchema), 
-  login);
+router.post("/login", authLimiter, validate(authSchemas.loginSchema), login);
 
 router.post(
   "/verify-email",
   authLimiter,
-  // validate(authSchemas.verifyEmailSchema),
+  validate(authSchemas.verifyEmailSchema),
   verifyEmail
 );
 
 router.post(
   "/refresh-token",
-  // validate(authSchemas.refreshTokenSchema),
+  validate(authSchemas.refreshTokenSchema),
   refreshAccessToken
 );
 
@@ -57,14 +54,14 @@ router.post(
 router.post(
   "/password-reset",
   authLimiter,
-  // validate(authSchemas.passwordResetRequestSchema),
+  validate(authSchemas.passwordResetRequestSchema),
   requestPasswordReset
 );
 
 router.post(
   "/password-reset/confirm",
   authLimiter,
-  // validate(authSchemas.passwordResetConfirmSchema),
+  validate(authSchemas.passwordResetConfirmSchema),
   resetPassword
 );
 
@@ -91,6 +88,5 @@ router.get(
 router.use(authMiddleware());
 
 router.post("/logout", logout);
-router.get("/protected", protectedRoute);
 
 export default router;
