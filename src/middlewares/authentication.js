@@ -5,7 +5,8 @@ import { initializeCasbin } from "../config/casbin.js";
 import config from "../config/env.js";
 import jwt from "jsonwebtoken";
 import { AuthError } from "../utils/apiError.js";
-
+import { PermissionError } from "../utils/apiError.js";
+import { validate as isUUID } from "uuid";
 // Load Casbin enforcer at startup
 let enforcer;
 initializeCasbin()
@@ -33,7 +34,6 @@ const authMiddleware = (options = {}) => {
             return next(new AuthError("Authentication failed"));
           }
 
-
           if (!user.isActive)
             return next(new PermissionError("Account deactivated"));
           if (requireVerified && !user.isVerified)
@@ -52,7 +52,6 @@ const authMiddleware = (options = {}) => {
               code: "AUTHZ_INITIALIZING",
             });
           }
-         
 
           const resource = normalizeResource(req.path);
           const action = req.method.toLowerCase();
@@ -69,24 +68,27 @@ const authMiddleware = (options = {}) => {
               code: "PERMISSION_DENIED",
             });
           }
-
+          const entityId = isUUID(resource)
+            ? resource
+            : "00000000-0000-0000-0000-000000000000";
           // ✅ Audit Logging
           try {
-            await prisma.auditLog.create({
+            const logEntry= await prisma.auditLog.create({
               data: {
                 actionType: "API_REQUEST",
                 entityType: "ENDPOINT",
-                entityId: resource,
+                entityId: entityId,
                 userId: user.id,
                 ipAddress: req.ip,
                 userAgent: req.headers["user-agent"],
-                metadata: {
+                newValues: {
                   method: req.method,
                   params: req.params,
                   query: req.query,
                 },
               },
             });
+            logger.info(`[AUDIT] Log created successfully: ${logEntry.id}`);
           } catch (auditError) {
             logger.error(
               `Audit log failed for user ${user.id}: ${auditError.message}`,
@@ -98,8 +100,14 @@ const authMiddleware = (options = {}) => {
           }
 
           next();
-        } catch (catchAllError) {
-          logger.error(`Middleware error: ${catchAllError.message}`);
+        } catch (auditError) {
+          logger.error(`Middleware error: ${auditError.message}`);
+          logger.error(`Audit log failed for user ${user.id}: ${auditError.message}`, {
+            path: req.path,
+            method: req.method,
+            stack: auditError.stack, // ✅ Add detailed error info
+          });
+
           res.status(500).json({
             error: "Internal Server Error",
             message: "An unexpected error occurred",

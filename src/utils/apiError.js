@@ -74,6 +74,17 @@ export class NotFoundError extends ApiError {
   }
 }
 
+export class PermissionError extends ApiError {
+  constructor(message = "Insufficient permissions") {
+    super(
+      "PERMISSION_DENIED",
+      403,
+      message,
+      "User does not have permission to access this resource"
+    );
+  }
+}
+
 export class ConflictError extends ApiError {
   constructor(message = "Resource conflict detected") {
     super("CONFLICT", 409, message, "Resource conflict detected");

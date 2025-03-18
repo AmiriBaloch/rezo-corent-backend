@@ -3,6 +3,7 @@ import { newEnforcer } from "casbin";
 import { PrismaAdapter } from "casbin-prisma-adapter";
 import path from "path";
 import config from "./env.js"; // Make sure to import your config
+import logger from "./logger.js";
 
 // Cache the enforcer promise for singleton use
 let enforcerPromise = null;
@@ -78,11 +79,11 @@ export const casbinRBAC = {
   },
 };
 initializeCasbin().then((enforcer) => {
-  console.log("Casbin policy loaded successfully");
+  logger.info("✅ Casbin policy loaded successfully");
 
   // Add proper environment check
   if (config.get("env") === "development") {
     enforcer.enableLog(true);
-    console.log("Casbin request logging enabled");
+    logger.info("Casbin request logging enabled");
   }
 });

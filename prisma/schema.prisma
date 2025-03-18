@@ -201,7 +201,7 @@ model AuditLog {
   id         String   @id @default(uuid()) @db.Uuid
   actionType String   @map("action_type") @db.VarChar(50)
   entityType String   @map("entity_type") @db.VarChar(100)
-  entityId   String   @map("entity_id") @db.Uuid
+  entityId   String   @map("entity_id") 
   userId     String?  @map("user_id") @db.Uuid
   ipAddress  String?  @map("ip_address") @db.VarChar(45)
   userAgent  String?  @map("user_agent") @db.VarChar(255)
