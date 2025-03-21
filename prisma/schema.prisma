@@ -195,6 +195,24 @@ model UserRole {
 }
 
 // --------------------------------------------------
+// Casbin Integration for Policy Enforcement
+// --------------------------------------------------
+model CasbinRule {
+  id    Int     @id @default(autoincrement())
+  ptype String  @db.VarChar(10)
+  v0    String? @db.VarChar(100)
+  v1    String? @db.VarChar(100)
+  v2    String? @db.VarChar(100)
+  v3    String? @db.VarChar(100)
+  v4    String? @db.VarChar(100)
+  v5    String? @db.VarChar(100)
+
+  @@index([ptype, v0, v1, v2, v3])
+  @@map("casbin_rules")
+}
+
+
+// --------------------------------------------------
 // Audit & Compliance
 // --------------------------------------------------
 model AuditLog {
@@ -214,21 +232,4 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([userId])
   @@map("audit_logs")
-}
-
-// --------------------------------------------------
-// Casbin Integration for Policy Enforcement
-// --------------------------------------------------
-model CasbinRule {
-  id    Int     @id @default(autoincrement())
-  ptype String  @db.VarChar(10)
-  v0    String? @db.VarChar(100)
-  v1    String? @db.VarChar(100)
-  v2    String? @db.VarChar(100)
-  v3    String? @db.VarChar(100)
-  v4    String? @db.VarChar(100)
-  v5    String? @db.VarChar(100)
-
-  @@index([ptype, v0, v1, v2, v3])
-  @@map("casbin_rules")
 }

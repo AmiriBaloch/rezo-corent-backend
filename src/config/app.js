@@ -11,6 +11,7 @@ import cookieParser from "cookie-parser";
 import { errorHandler } from "../middlewares/errorHandler.js";
 import initializePassport from "./passport.js";
 import passport from "passport";
+import { swaggerDocs } from "./swagger.js";
 // import { initializeCasbin } from "../config/casbin.js";
 
 const app = express();
@@ -109,5 +110,5 @@ app.get("/", async (req, res) => {
 // Error Handling
 // ========================
 app.use(errorHandler);
-
+swaggerDocs(app);
 export default app;
