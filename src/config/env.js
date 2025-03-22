@@ -124,6 +124,15 @@ const config = convict({
       sensitive: true,
     },
   },
+  casbin: {
+    policyVersion: "1.0.0",
+    reloadInterval: 300000, // 5 minutes
+    defaultRole: "guest",
+    requiredPolicies: [
+      { role: "admin", resource: "*", action: "*" },
+      { role: "user", resource: "profile", action: "read" },
+    ],
+  },
 });
 
 // Perform validation

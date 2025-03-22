@@ -146,6 +146,7 @@ model Role {
   isSystem    Boolean          @default(false) @map("is_system")
   permissions RolePermission[]
   users       UserRole[]
+  deletedAt   DateTime?        @map("deleted_at")  // ✅ Soft delete field
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
 
