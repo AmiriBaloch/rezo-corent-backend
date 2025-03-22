@@ -78,6 +78,7 @@ export const casbinRBAC = {
     }
   },
 };
+
 initializeCasbin().then((enforcer) => {
   logger.info("✅ Casbin policy loaded successfully");
 
@@ -87,3 +88,55 @@ initializeCasbin().then((enforcer) => {
     logger.info("Casbin request logging enabled");
   }
 });
+export class CasbinPolicyManager {
+  constructor() {
+    this.enforcer = null;
+  }
+
+  // ✅ Initialize the enforcer using the existing initializeCasbin function
+  // ✅ Initialize using the existing singleton
+  async initialize() {
+    try {
+      // Get the initialized enforcer from the singleton
+      this.enforcer = await initializeCasbin();
+      if (!this.enforcer) {
+        throw new Error("Casbin enforcer not initialized");
+      }
+      return this.enforcer;
+    } catch (error) {
+      throw new ConfigurationError(`Casbin initialization failed: ${error.message}`);
+    }
+  }
+
+  // ✅ Add proper policy management methods
+  async addPermissionForUser(resource, action) {
+    if (!this.enforcer) {
+      throw new ConfigurationError("Casbin enforcer not initialized");
+    }
+    await this.enforcer.addPolicy("admin", resource, action);
+  }
+
+  // ✅ Update permission with proper enforcer reference
+  async updatePermission(oldResource, oldAction, newResource, newAction) {
+    if (!this.enforcer) {
+      throw new ConfigurationError("Casbin enforcer is not initialized");
+    }
+    await this.enforcer.removePolicy("admin", oldResource, oldAction);
+    await this.enforcer.addPolicy("admin", newResource, newAction);
+    logger.info(`✅ Updated permission: ${oldResource} → ${newResource}`);
+  }
+
+  // ✅ Remove permission with proper enforcer reference
+  async removePermission(resource, action) {
+    if (!this.enforcer) {
+      throw new ConfigurationError("Casbin enforcer is not initialized");
+    }
+    await this.enforcer.removePolicy("admin", resource, action);
+    logger.info(`✅ Removed permission: ${resource} - ${action}`);
+  }
+
+  // ✅ Check if enforcer is initialized
+  get isInitialized() {
+    return !!this.enforcer;
+  }
+}

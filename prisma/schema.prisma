@@ -182,15 +182,15 @@ model RolePermission {
 }
 
 model UserRole {
-  userId     String    @db.Uuid
-  roleId     String    @db.Uuid
-  user       User      @relation(fields: [userId], references: [id])
-  role       Role      @relation(fields: [roleId], references: [id])
-  assignedBy String    @db.Uuid
-  expiresAt  DateTime? @map("expires_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  userId     String    @db.Uuid  // The User receiving the role
+  roleId     String    @db.Uuid  // The Role assigned to the User
+  user       User      @relation(fields: [userId], references: [id]) // Relationship with User
+  role       Role      @relation(fields: [roleId], references: [id]) // Relationship with Role
+  assignedBy String    @db.Uuid  // The User (Admin) who assigned the role
+  expiresAt  DateTime? @map("expires_at") // Optional expiration date
+  createdAt  DateTime  @default(now()) @map("created_at") // Timestamp of when the role was assigned
 
-  @@id([userId, roleId])
+  @@id([userId, roleId]) // ✅ Composite Primary Key (ensures unique User-Role pairs)
   @@index([userId, roleId])
   @@map("user_roles")
 }

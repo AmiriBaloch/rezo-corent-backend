@@ -12,7 +12,7 @@ import { errorHandler } from "../middlewares/errorHandler.js";
 import initializePassport from "./passport.js";
 import passport from "passport";
 import { swaggerDocs } from "./swagger.js";
-// import { initializeCasbin } from "../config/casbin.js";
+import { initializeCasbin } from "../config/casbin.js";
 
 const app = express();
 
@@ -51,7 +51,7 @@ app.use(
 //===================================== 
 // Initialize Casbin on startup
 //======================================
-// initializeCasbin()
+initializeCasbin()
 // ========================
 // Rate Limiting
 // ========================

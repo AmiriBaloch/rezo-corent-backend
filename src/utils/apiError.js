@@ -96,9 +96,16 @@ export class ValidationError extends ApiError {
     super("VALIDATION_ERROR", 422, message, "Validation Error");
   }
 }
+
 export class DatabaseError extends ApiError {
   constructor(message = "Database error") {
     super("DATABASE_ERROR", 500, message, "Database error");
+  }
+}
+
+export class ConfigurationError extends ApiError {
+  constructor(message = "Configuration error") {
+    super("CONFIGURATION_ERROR", 500, message, "Configuration error");
   }
 }
 
