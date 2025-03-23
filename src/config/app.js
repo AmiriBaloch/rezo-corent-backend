@@ -2,8 +2,8 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import { rateLimit } from "express-rate-limit";
-import { httpLogger } from "./logger.js";
-import prisma, { connectDB } from "./database.js";
+import logger, { httpLogger } from "./logger.js";
+import prisma, { connectDB as connectPostgres } from "./database.js";
 import redis from "./redis.js";
 import routes from "../modules/index.js";
 import bodyParser from "body-parser";
@@ -13,6 +13,8 @@ import initializePassport from "./passport.js";
 import passport from "passport";
 import { swaggerDocs } from "./swagger.js";
 import { initializeCasbin } from "../config/casbin.js";
+import { connectMongoDB, disconnectMongoDB } from "./mongodb.js";
+import mongoose from "mongoose";
 
 const app = express();
 
@@ -48,10 +50,10 @@ app.use(
 );
 
 //
-//===================================== 
+//=====================================
 // Initialize Casbin on startup
 //======================================
-initializeCasbin()
+initializeCasbin();
 // ========================
 // Rate Limiting
 // ========================
@@ -81,30 +83,70 @@ app.use(httpLogger);
 // ========================
 // Database Connections
 // ========================
-connectDB(); // Ensure PostgreSQL is connected
+
+await connectPostgres();
+await connectMongoDB();
+
+// ========================
+// Enhanced Health Check
+// ========================
+app.get("/", async (req, res) => {
+  const healthCheck = {
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    services: {
+      postgresql: "unhealthy",
+      mongodb: "unhealthy",
+      redis: "unhealthy",
+    },
+  };
+
+  try {
+    // PostgreSQL Check
+    await prisma.$queryRaw`SELECT 1`;
+    healthCheck.services.postgresql = "healthy";
+  } catch (error) {
+    healthCheck.status = "degraded";
+    logger.error("PostgreSQL health check failed:", error);
+  }
+
+  try {
+    if (mongoose.connection.readyState === 1) {
+      healthCheck.services.mongodb = "healthy";
+    } else {
+      healthCheck.status = "degraded";
+      logger.error("MongoDB is not connected properly.");
+    }
+  } catch (error) {
+    healthCheck.status = "degraded";
+    logger.error("MongoDB health check failed:", error);
+  }
+
+  // Redis Check
+  try {
+    const redisPing = await redis.ping();
+    healthCheck.services.redis = redisPing === "PONG" ? "healthy" : "unhealthy";
+  } catch (error) {
+    healthCheck.status = "degraded";
+    logger.error("Redis health check failed:", error);
+  }
+
+  // Determine overall status
+  if (Object.values(healthCheck.services).every((s) => s === "healthy")) {
+    healthCheck.status = "ok";
+  } else if (
+    Object.values(healthCheck.services).some((s) => s === "unhealthy")
+  ) {
+    healthCheck.status = "degraded";
+  }
+
+  res.status(healthCheck.status === "ok" ? 200 : 503).json(healthCheck);
+});
 
 // ========================
 // Application Routes
 // ========================
 app.use("/api", routes);
-
-// ========================
-// Health Check
-// ========================
-app.get("/", async (req, res) => {
-  const dbStatus = await prisma.$queryRaw`SELECT 1`
-    .then(() => "healthy")
-    .catch(() => "unhealthy");
-
-  const redisStatus = redis.status === "ready" ? "healthy" : "unhealthy";
-
-  res.json({
-    status: "ok",
-    db: dbStatus,
-    redis: redisStatus,
-    timestamp: new Date().toISOString(),
-  });
-});
 
 // ========================
 // Error Handling

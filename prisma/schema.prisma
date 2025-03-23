@@ -13,20 +13,44 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==================================================
+// Enums & Types
+// ==================================================
+enum PropertyStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
 // --------------------------------------------------
 // Core User Model with Security Features
 // --------------------------------------------------
 model User {
-  id                  String              @id @default(uuid()) @db.Uuid
-  email               String              @unique @db.VarChar(255)
-  username            String?             @unique @db.VarChar(50)
-  passwordHash        String?             @map("password_hash")  // Nullable for OAuth users
-  isActive            Boolean             @default(true) @map("is_active")
-  isVerified          Boolean             @default(false) @map("is_verified")
-  mfaEnabled          Boolean             @default(false) @map("mfa_enabled")
-  lastLogin           DateTime?           @map("last_login")
-  failedLoginAttempts Int                 @default(0) @map("failed_login_attempts")
-  lockedUntil         DateTime?           @map("locked_until")
+  id                  String            @id @default(uuid()) @db.Uuid
+  email               String            @unique @db.VarChar(255)
+  username            String?           @unique @db.VarChar(50)
+  passwordHash        String?           @map("password_hash") // Nullable for OAuth users
+  isActive            Boolean           @default(true) @map("is_active")
+  isVerified          Boolean           @default(false) @map("is_verified")
+  mfaEnabled          Boolean           @default(false) @map("mfa_enabled")
+  lastLogin           DateTime?         @map("last_login")
+  failedLoginAttempts Int               @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?         @map("locked_until")
   profile             Profile?
   sessions            Session[]
   roles               UserRole[]
@@ -34,8 +58,12 @@ model User {
   passwordResets      PasswordReset[]
   otpVerifications    OTPVerification[]
   twoFactorAuth       TwoFactorAuth?
-  createdAt           DateTime            @default(now()) @map("created_at")
-  updatedAt           DateTime            @updatedAt @map("updated_at")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  properties          Property[]
+  bookings            Booking[]
+  payments            Payment[]
+  reviews             Review[]
 
   @@index([email, isActive])
   @@index([username, isActive])
@@ -46,17 +74,17 @@ model User {
 // Enhanced OTP Verification System
 // --------------------------------------------------
 model OTPVerification {
-  id           String     @id @default(uuid()) @db.Uuid
-  userId       String     @db.Uuid
-  type         String     @db.VarChar(20) // EMAIL_VERIFICATION, PASSWORD_RESET, LOGIN_2FA
-  code         String     @db.VarChar(6)  // 6-digit code
-  attempts     Int        @default(0)
-  maxAttempts  Int        @default(3)
-  expiresAt    DateTime   @map("expires_at")
-  verifiedAt   DateTime?  @map("verified_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-  user         User       @relation(fields: [userId], references: [id])
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  type        String    @db.VarChar(20) // EMAIL_VERIFICATION, PASSWORD_RESET, LOGIN_2FA
+  code        String    @db.VarChar(6) // 6-digit code
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  expiresAt   DateTime  @map("expires_at")
+  verifiedAt  DateTime? @map("verified_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  user        User      @relation(fields: [userId], references: [id])
 
   @@index([userId, type])
   @@index([expiresAt])
@@ -67,12 +95,12 @@ model OTPVerification {
 // Updated Password Reset System
 // --------------------------------------------------
 model PasswordReset {
-  id          String     @id @default(uuid()) @db.Uuid
-  userId      String     @db.Uuid
-  token       String     @unique @db.VarChar(512)
-  expiresAt   DateTime   @map("expires_at")
-  createdAt   DateTime   @default(now()) @map("created_at")
-  user        User       @relation(fields: [userId], references: [id])
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  token     String   @unique @db.VarChar(512)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([expiresAt])
@@ -83,19 +111,18 @@ model PasswordReset {
 // Enhanced Two-Factor Authentication
 // --------------------------------------------------
 model TwoFactorAuth {
-  id            String     @id @default(uuid()) @db.Uuid
-  userId        String     @unique @db.Uuid
-  secret        String     @db.VarChar(64)
-  backupCodes   String[]   @db.VarChar(64)  // Hashed backup codes
-  recoveryToken String?    @unique @map("recovery_token") @db.VarChar(512)
-  lastUsed      DateTime?  @map("last_used")
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
-  user          User       @relation(fields: [userId], references: [id])
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @unique @db.Uuid
+  secret        String    @db.VarChar(64)
+  backupCodes   String[]  @db.VarChar(64) // Hashed backup codes
+  recoveryToken String?   @unique @map("recovery_token") @db.VarChar(512)
+  lastUsed      DateTime? @map("last_used")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  user          User      @relation(fields: [userId], references: [id])
 
   @@map("two_factor_auth")
 }
-
 
 // --------------------------------------------------
 // Profile Information (Separate for Security)
@@ -134,7 +161,6 @@ model Session {
   @@map("sessions")
 }
 
-
 // --------------------------------------------------
 // RBAC/ABAC Authorization System
 // --------------------------------------------------
@@ -146,7 +172,7 @@ model Role {
   isSystem    Boolean          @default(false) @map("is_system")
   permissions RolePermission[]
   users       UserRole[]
-  deletedAt   DateTime?        @map("deleted_at")  // ✅ Soft delete field
+  deletedAt   DateTime?        @map("deleted_at") // ✅ Soft delete field
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
 
@@ -182,11 +208,11 @@ model RolePermission {
 }
 
 model UserRole {
-  userId     String    @db.Uuid  // The User receiving the role
-  roleId     String    @db.Uuid  // The Role assigned to the User
+  userId     String    @db.Uuid // The User receiving the role
+  roleId     String    @db.Uuid // The Role assigned to the User
   user       User      @relation(fields: [userId], references: [id]) // Relationship with User
   role       Role      @relation(fields: [roleId], references: [id]) // Relationship with Role
-  assignedBy String    @db.Uuid  // The User (Admin) who assigned the role
+  assignedBy String    @db.Uuid // The User (Admin) who assigned the role
   expiresAt  DateTime? @map("expires_at") // Optional expiration date
   createdAt  DateTime  @default(now()) @map("created_at") // Timestamp of when the role was assigned
 
@@ -212,7 +238,6 @@ model CasbinRule {
   @@map("casbin_rules")
 }
 
-
 // --------------------------------------------------
 // Audit & Compliance
 // --------------------------------------------------
@@ -220,7 +245,7 @@ model AuditLog {
   id         String   @id @default(uuid()) @db.Uuid
   actionType String   @map("action_type") @db.VarChar(50)
   entityType String   @map("entity_type") @db.VarChar(100)
-  entityId   String   @map("entity_id") 
+  entityId   String   @map("entity_id")
   userId     String?  @map("user_id") @db.Uuid
   ipAddress  String?  @map("ip_address") @db.VarChar(45)
   userAgent  String?  @map("user_agent") @db.VarChar(255)
@@ -233,4 +258,120 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([userId])
   @@map("audit_logs")
+}
+
+// --------------------------------------------------
+// Property Management
+// --------------------------------------------------
+model Property {
+  id           String         @id @default(uuid()) @db.Uuid
+  ownerId      String         @db.Uuid
+  title        String         @db.VarChar(120)
+  basePrice    Decimal        @map("base_price") @db.Money
+  currency     String         @default("USD") @db.VarChar(3)
+  status       PropertyStatus @default(PENDING)
+  location     Json // { lat: Decimal, lng: Decimal }
+  address      String         @db.VarChar(255)
+  maxGuests    Int            @map("max_guests")
+  availability Availability[]
+  bookings     Booking[]
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  deletedAt    DateTime?      @map("deleted_at")
+
+  // Relationships
+  owner    User      @relation(fields: [ownerId], references: [id])
+  reviews  Review[]
+  payments Payment[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("properties")
+}
+
+model Availability {
+  id          String   @id @default(uuid()) @db.Uuid
+  propertyId  String   @db.Uuid
+  startDate   DateTime @map("start_date")
+  endDate     DateTime @map("end_date")
+  price       Decimal  @db.Money
+  isAvailable Boolean  @default(true) @map("is_available")
+  property    Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId, startDate, endDate])
+  @@map("property_availability")
+}
+
+// --------------------------------------------------
+// Booking System
+// --------------------------------------------------
+model Booking {
+  id         String        @id @default(uuid()) @db.Uuid
+  propertyId String        @db.Uuid
+  tenantId   String        @db.Uuid
+  startDate  DateTime      @map("start_date")
+  endDate    DateTime      @map("end_date")
+  totalPrice Decimal       @map("total_price") @db.Money
+  status     BookingStatus @default(PENDING)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  property Property @relation(fields: [propertyId], references: [id])
+  tenant   User     @relation(fields: [tenantId], references: [id])
+  payment  Payment?
+
+  @@index([propertyId])
+  @@index([tenantId])
+  @@index([status])
+  @@map("bookings")
+}
+
+// --------------------------------------------------
+// Payment System
+// --------------------------------------------------
+model Payment {
+  id            String        @id @default(uuid()) @db.Uuid
+  bookingId     String        @unique @db.Uuid
+  amount        Decimal       @db.Money
+  currency      String        @default("USD") @db.VarChar(3)
+  paymentMethod String        @map("payment_method") @db.VarChar(20)
+  transactionId String        @unique @map("transaction_id") @db.VarChar(255)
+  status        PaymentStatus
+  processedAt   DateTime?     @map("processed_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  // Relationships
+  booking    Booking   @relation(fields: [bookingId], references: [id])
+  User       User?     @relation(fields: [userId], references: [id])
+  userId     String?   @db.Uuid
+  Property   Property? @relation(fields: [propertyId], references: [id])
+  propertyId String?   @db.Uuid
+
+  @@index([bookingId])
+  @@index([transactionId])
+  @@index([status])
+  @@map("payments")
+}
+
+// --------------------------------------------------
+// Review System
+// --------------------------------------------------
+model Review {
+  id         String   @id @default(uuid()) @db.Uuid
+  propertyId String   @db.Uuid
+  tenantId   String   @db.Uuid
+  rating     Int
+  comment    String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  property Property @relation(fields: [propertyId], references: [id])
+  tenant   User     @relation(fields: [tenantId], references: [id])
+
+  @@unique([propertyId, tenantId])
+  @@index([propertyId, rating])
+  @@map("reviews")
 }

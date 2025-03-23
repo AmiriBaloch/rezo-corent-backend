@@ -133,6 +133,12 @@ const config = convict({
       { role: "user", resource: "profile", action: "read" },
     ],
   },
+  mongodb: {
+    doc: 'MongoDB connection URL',
+    format: String,
+    default: 'mongodb://localhost:27017/corent',
+    env: 'MONGODB_URL'
+  }
 });
 
 // Perform validation
