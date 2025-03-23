@@ -1,6 +1,6 @@
-const mongoose = require("mongoose");
+import { Schema, model } from "mongoose";
 
-const messageSchema = new mongoose.Schema(
+const messageSchema = new Schema(
   {
     senderId: {
       type: String,
@@ -26,4 +26,4 @@ const messageSchema = new mongoose.Schema(
 messageSchema.index({ senderId: 1, receiverId: 1 });
 messageSchema.index({ createdAt: -1 });
 
-module.exports = mongoose.model("Message", messageSchema);
+export default model("Message", messageSchema);
