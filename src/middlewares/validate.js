@@ -10,16 +10,20 @@ const validate = (schema) => async (req, res, next) => {
   };
 
   try {
-    const value = await schema.validateAsync(req.body, validationOptions);
-    req.body = value;
+    // Ensure validation works whether schema has `.validateAsync()` or only `.validate()`
+    const value = schema.validateAsync
+      ? await schema.validateAsync(req.body, validationOptions)
+      : schema.validate(req.body, validationOptions).value;
+
+    req.body = value; // Assign sanitized value to req.body
     return next();
   } catch (error) {
-    logger.error(`Validation error: ${error.message}`);
+    logger.error(`❌ Validation error: ${error.message}`);
 
-    const errors = error.details.map((detail) => ({
-      field: detail.context.key,
+    const errors = error.details?.map((detail) => ({
+      field: detail.context?.key || "unknown",
       message: detail.message.replace(/['"]/g, ""),
-    }));
+    })) || [{ field: "unknown", message: "Validation failed" }];
 
     return res.status(400).json({
       success: false,
