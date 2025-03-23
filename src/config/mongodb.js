@@ -4,8 +4,8 @@ import config from './env.js';
 
 // MongoDB connection options
 const mongoOptions = {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
+  // useNewUrlParser: true,
+  // useUnifiedTopology: true,
   retryWrites: true,
   w: 'majority',
 };
