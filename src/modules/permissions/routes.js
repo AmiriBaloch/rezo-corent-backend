@@ -1,6 +1,6 @@
 import express from "express";
 import PermissionController from "./controller.js";
-import { validatePermission } from "./validation.js";
+import { validatePermission } from "./schemas.js";
 import authMiddleware from "../../middlewares/authentication.js";
 
 const router = express.Router();

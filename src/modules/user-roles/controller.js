@@ -1,4 +1,4 @@
-import { validate } from "./validation.js";
+import { validate } from "./schemas.js";
 import { BadRequestError, NotFoundError, ConflictError, DatabaseError } from "../../utils/apiError.js";
 import userRoleService from "./service.js";
 import logger from "../../config/logger.js";

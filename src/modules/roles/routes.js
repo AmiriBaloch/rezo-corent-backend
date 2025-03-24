@@ -7,7 +7,7 @@ import {
   createRoleSchema,
   updateRoleSchema,
   // assignPermissionsSchema,
-} from "./validation.schemas.js";
+} from "./schemas.js";
 
 const router = express.Router();
 const roleController = new RoleController(RoleService);

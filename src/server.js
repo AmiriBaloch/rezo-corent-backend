@@ -5,6 +5,7 @@ import { createTerminus } from "@godaddy/terminus";
 import app from "./config/app.js";
 import config from "./config/env.js";
 import { disconnectDB } from "./config/database.js";
+import { disconnectMongoDB } from "./config/mongodb.js";
 import { disconnectRedis } from "./config/redis.js";
 import { logger } from "./config/logger.js";
 
@@ -30,7 +31,11 @@ const startServer = async () => {
       },
       onSignal: async () => {
         logger.info("⚠️ Closing connections...");
-        await Promise.all([disconnectDB(), disconnectRedis()]);
+        await Promise.all([
+          disconnectDB(),
+          disconnectRedis(),
+          disconnectMongoDB(),
+        ]);
       },
       onShutdown: () => {
         logger.info("✅ Clean shutdown complete");

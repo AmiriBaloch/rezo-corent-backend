@@ -13,7 +13,7 @@ import passport from "passport";
 import rateLimit from "express-rate-limit";
 import requestContext from "../../middlewares/context.js";
 import validate from "../../middlewares/validate.js";
-import authSchemas from "./validation.schemas.js";
+import authSchemas from "./schemas.js";
 import authMiddleware from "../../middlewares/authentication.js";
 import { guestMiddleware } from "../../middlewares/guestMiddleware.js";
 // Rate limiting configuration

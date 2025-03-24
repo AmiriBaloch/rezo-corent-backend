@@ -1,4 +1,4 @@
-import { validate } from "./validation.js";
+import { validate } from "./schemas.js";
 import {
   BadRequestError,
   NotFoundError,
