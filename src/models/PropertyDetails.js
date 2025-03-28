@@ -1,41 +1,45 @@
+// property.search.model.js
 import { Schema, model } from "mongoose";
 
-const propertyDetailsSchema = new Schema(
+const propertySearchSchema = new Schema(
   {
     propertyId: {
       type: String,
       required: true,
       unique: true,
     },
-    description: {
-      type: String,
-      required: true,
+    // Denormalized core fields for search
+    title: { type: String, index: "text" },
+    description: { type: String, index: "text" },
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        required: true,
+      },
+      coordinates: {
+        type: [Number],
+        required: true,
+      },
     },
-    amenities: {
-      type: [String],
-      default: [],
-    },
-    houseRules: {
-      type: Schema.Types.Mixed, // Flexible JSON structure
-    },
-    photos: {
-      type: [String],
-      default: [],
-    },
-    videos: {
-      type: [String],
-      default: [],
-    },
-    tags: {
-      type: [String],
-      default: [],
-    },
-    searchBoost: {
-      type: Number,
-      default: 0,
+    // Search optimization
+    searchTags: { type: [String], index: true },
+    searchBoost: { type: Number, default: 0 },
+    // Presentation layer cache
+    featuredPhotos: [String],
+    quickStats: {
+      rating: Number,
+      reviewCount: Number,
+      bookedCount: Number,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    autoIndex: true,
+  }
 );
 
-export default model("PropertyDetails", propertyDetailsSchema);
+// Geospatial index for location searches
+propertySearchSchema.index({ location: "2dsphere" });
+
+export default model("PropertySearch", propertySearchSchema);

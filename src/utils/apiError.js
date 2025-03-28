@@ -115,6 +115,12 @@ export class TooManyRequestsError extends ApiError {
   }
 }
 
+export class BookingError extends ApiError {
+  constructor(message = "Booking error") {
+    super("BOOKING_ERROR", 400, message, "Booking error occurred");
+  }
+}
+
 export class InternalServerError extends ApiError {
   constructor(message = "Internal server error") {
     super("INTERNAL_SERVER_ERROR", 500, message, "Internal server error");

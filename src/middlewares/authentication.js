@@ -1,26 +1,76 @@
+// middlewares/authentication.js
 import passport from "passport";
 import prisma from "../config/database.js";
 import logger from "../config/logger.js";
 import { initializeCasbin } from "../config/casbin.js";
 import config from "../config/env.js";
 import jwt from "jsonwebtoken";
-import { AuthError } from "../utils/apiError.js";
-import { PermissionError } from "../utils/apiError.js";
+import {
+  AuthError,
+  PermissionError,
+  NotFoundError,
+} from "../utils/apiError.js";
 import { validate as isUUID } from "uuid";
-// Load Casbin enforcer at startup
-let enforcer;
-initializeCasbin()
-  .then((casbinInstance) => {
-    enforcer = casbinInstance;
-  })
-  .catch((error) => {
-    process.exit(1);
-  });
 
-const authMiddleware = (options = {}) => {
-  return async (req, res, next) => {
+// Initialize Casbin enforcer with retry logic
+let enforcer;
+const MAX_RETRIES = 3;
+let retryCount = 0;
+
+const initializeEnforcer = async () => {
+  try {
+    enforcer = await initializeCasbin();
+    logger.info("Casbin enforcer initialized successfully");
+  } catch (error) {
+    if (retryCount < MAX_RETRIES) {
+      retryCount++;
+      logger.warn(
+        `Casbin initialization failed, retrying (${retryCount}/${MAX_RETRIES})`
+      );
+      setTimeout(initializeEnforcer, 5000);
+    } else {
+      logger.error("Casbin initialization failed after retries", error);
+      process.exit(1);
+    }
+  }
+};
+initializeEnforcer();
+
+// ==================================================
+// Resource Pattern Resolution
+// ==================================================
+function resolveResourcePattern(pattern, req) {
+  if (!pattern) {
+    throw new Error('Resource pattern is required');
+  }
+
+  return pattern
+    .split('/')
+    .map(segment => {
+      if (segment.startsWith(':')) {
+        const paramName = segment.slice(1);
+        const paramValue = req.params[paramName] || req.body[paramName];
+        if (!paramValue) {
+          logger.warn(`Missing parameter ${paramName} in request`, {
+            params: req.params,
+            body: req.body
+          });
+          throw new Error(`Missing required parameter: ${paramName}`);
+        }
+        return paramValue;
+      }
+      return segment;
+    })
+    .join('/');
+}
+// ==================================================
+// Enhanced Authentication Middleware
+// ==================================================
+export const authenticateUser = (options = {}) => {
+  return (req, res, next) => {
     const requireVerified = options.requireVerified ?? true;
     const requireMFA = options.requireMFA ?? false;
+    const allowedRoles = options.roles || [];
 
     passport.authenticate(
       "jwt",
@@ -29,158 +79,355 @@ const authMiddleware = (options = {}) => {
         try {
           if (error || !user) {
             logger.warn(
-              `Authentication failed: ${info?.message || "Unknown error"}`
+              `Authentication failed: ${info?.message || "Unknown error"}`,
+              {
+                ip: req.ip,
+                path: req.path,
+              }
             );
             return next(new AuthError("Authentication failed"));
           }
 
-          if (!user.isActive)
-            return next(new PermissionError("Account deactivated"));
-          if (requireVerified && !user.isVerified)
-            return next(new PermissionError("Account not verified"));
-          if (requireMFA && !user.mfaEnabled)
-            return next(new PermissionError("MFA required"));
-
-          req.user = user;
-
-          // ✅ Casbin Authorization
-          if (!enforcer) {
-            logger.error("Casbin enforcer not initialized");
-            return res.status(503).json({
-              error: "Service Unavailable",
-              message: "Authorization system is initializing",
-              code: "AUTHZ_INITIALIZING",
-            });
-          }
-
-          const resource = normalizeResource(req.path);
-          const action = req.method.toLowerCase();
-
-          const hasAccess = await enforcer.enforce(user.id, resource, action);
-
-          if (!hasAccess) {
-            logger.warn(
-              `Unauthorized access attempt: ${user.id} -> ${resource} [${action}]`
-            );
-            return res.status(403).json({
-              error: "Forbidden",
-              message: "Insufficient permissions",
-              code: "PERMISSION_DENIED",
-            });
-          }
-          const entityId = isUUID(resource)
-            ? resource
-            : "00000000-0000-0000-0000-000000000000";
-          // ✅ Audit Logging
-          try {
-            const logEntry= await prisma.auditLog.create({
-              data: {
-                actionType: "API_REQUEST",
-                entityType: "ENDPOINT",
-                entityId: entityId,
-                userId: user.id,
-                ipAddress: req.ip,
-                userAgent: req.headers["user-agent"],
-                newValues: {
-                  method: req.method,
-                  params: req.params,
-                  query: req.query,
+          // Fetch complete user with roles
+          const fullUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            include: {
+              roles: {
+                include: {
+                  role: {
+                    include: {
+                      permissions: {
+                        include: {
+                          permission: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
-            });
-            logger.info(`[AUDIT] Log created successfully: ${logEntry.id}`);
-          } catch (auditError) {
-            logger.error(
-              `Audit log failed for user ${user.id}: ${auditError.message}`,
-              {
-                path: req.path,
-                method: req.method,
-              }
-            );
+              profile: true,
+            },
+          });
+
+          if (!fullUser) {
+            throw new AuthError("User not found");
           }
 
-          next();
-        } catch (auditError) {
-          logger.error(`Middleware error: ${auditError.message}`);
-          logger.error(`Audit log failed for user ${user.id}: ${auditError.message}`, {
-            path: req.path,
-            method: req.method,
-            stack: auditError.stack, // ✅ Add detailed error info
-          });
+          // Check account status
+          if (!fullUser.isActive) {
+            throw new PermissionError("Account deactivated");
+          }
 
-          res.status(500).json({
-            error: "Internal Server Error",
-            message: "An unexpected error occurred",
-            code: "SERVER_ERROR",
-          });
+          // Check verification status
+          if (requireVerified && !fullUser.isVerified) {
+            throw new PermissionError("Account not verified");
+          }
+
+          // Check MFA status
+          if (requireMFA && !fullUser.mfaEnabled) {
+            throw new PermissionError("MFA required");
+          }
+
+          // Check role restrictions
+          if (allowedRoles.length > 0) {
+            const hasRole = fullUser.roles.some((userRole) =>
+              allowedRoles.includes(userRole.role.name)
+            );
+            if (!hasRole) {
+              throw new PermissionError("Insufficient privileges");
+            }
+          }
+
+          // Attach enriched user object
+          req.user = {
+            ...fullUser,
+            permissions: fullUser.roles.flatMap((userRole) =>
+              userRole.role.permissions.map((rp) => ({
+                resource: rp.permission.resource,
+                action: rp.permission.action,
+                conditions: rp.conditions,
+              }))
+            ),
+          };
+
+          next();
+        } catch (error) {
+          next(error);
         }
       }
     )(req, res, next);
   };
 };
 
-// ✅ Normalize RESTful paths for Casbin
-function normalizeResource(path) {
-  return path
-    .split("/")
-    .map((segment) => (/^\d+$/.test(segment) ? ":id" : segment)) // Replace numeric IDs with :id
-    .join("/")
-    .replace(/\/+/g, "/") // Remove duplicate slashes
-    .replace(/\/$/, ""); // Remove trailing slashes
-}
+// ==================================================
+// Enhanced Authorization Middleware
+// ==================================================
+export const authorizeAccess = (resourcePattern, action, options = {}) => {
+  return async (req, res, next) => {
+    try {
+      // 1. System readiness check
+      if (!enforcer) {
+        logger.error("Authorization system not ready");
+        return res.status(503).json({
+          error: "Service Unavailable",
+          message: "Authorization system is initializing",
+          code: "AUTHZ_INITIALIZING",
+        });
+      }
 
-// ✅ Strict JWT Verification for Secure Endpoints
-export const strictJWT = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      // 2. Authentication verification
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({
+          error: "Unauthorized",
+          message: "User not authenticated",
+          code: "USER_NOT_AUTHENTICATED",
+        });
+      }
 
-  if (!token) {
-    return res.status(401).json({
-      error: "Unauthorized",
-      message: "Missing authorization token",
-      code: "TOKEN_MISSING",
-    });
+      // 3. Resource resolution
+      const resolvedResource = resolveResourcePattern(resourcePattern, req);
+      const resolvedAction = action || req.method.toLowerCase();
+
+      // 4. Ownership verification (if resource has ID)
+      if (options.checkOwnership !== false && resourcePattern.includes(":id")) {
+        await verifyOwnership(resolvedResource, req, user);
+      }
+
+      // 5. Permission check with ABAC conditions
+      const hasAccess = await checkAccessWithConditions(
+        user,
+        resolvedResource,
+        resolvedAction,
+        req
+      );
+
+      if (!hasAccess) {
+        logger.warn(
+          `Forbidden: ${user.id} -> ${resolvedResource} [${resolvedAction}]`
+        );
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Insufficient permissions",
+          code: "PERMISSION_DENIED",
+          required: `${resolvedAction}:${resolvedResource}`,
+        });
+      }
+
+      // 6. Audit logging
+      await createAuditLog(req, user, resolvedResource, resolvedAction);
+
+      next();
+    } catch (error) {
+      logger.error(`Authorization error: ${error.message}`, {
+        stack: error.stack,
+        userId: req.user?.id,
+        resource: resourcePattern,
+      });
+
+      if (error instanceof NotFoundError) {
+        return res.status(404).json({
+          error: "Not Found",
+          message: error.message,
+          code: "RESOURCE_NOT_FOUND",
+        });
+      }
+
+      res.status(500).json({
+        error: "Internal Server Error",
+        message: "An unexpected error occurred",
+        code: "SERVER_ERROR",
+      });
+    }
+  };
+};
+
+// ==================================================
+// Enhanced Helper Functions
+// ==================================================
+async function checkAccessWithConditions(user, resource, action, request) {
+  // First check direct permissions
+  const hasDirectAccess = await enforcer.enforce(user.id, resource, action);
+
+  if (hasDirectAccess) return true;
+
+  // Check role-based permissions with conditions
+  for (const permission of user.permissions) {
+    if (permission.resource === resource && permission.action === action) {
+      if (!permission.conditions) return true;
+
+      // Evaluate ABAC conditions
+      if (evaluateConditions(permission.conditions, request)) {
+        return true;
+      }
+    }
   }
 
-  try {
-    const decoded = jwt.verify(token, config.get("jwtSecret"), {
-      algorithms: ["HS256"],
-      issuer: config.get("jwtIssuer"), // ✅ Fixed: Use config
-      audience: config.get("jwtAudience"), // ✅ Fixed: Use config
-    });
+  return false;
+}
 
-    if (decoded.type !== "access") {
+function evaluateConditions(conditions, request) {
+  // Implement your ABAC condition evaluation logic
+  // Example: Check request params, user attributes, etc.
+  return true; // Simplified for this example
+}
+
+async function verifyOwnership(resource, req, user) {
+  const [resourceType, resourceId] = resource.split("/");
+
+  switch (resourceType) {
+    case "properties":
+      const property = await prisma.property.findUnique({
+        where: { id: resourceId },
+        select: { ownerId: true },
+      });
+
+      if (!property) {
+        throw new NotFoundError("Property not found");
+      }
+
+      if (property.ownerId !== user.id) {
+        throw new PermissionError("Ownership verification failed");
+      }
+      break;
+
+    case "bookings":
+      const booking = await prisma.booking.findUnique({
+        where: { id: resourceId },
+        select: { tenantId: true, property: { select: { ownerId: true } } },
+      });
+
+      if (!booking) {
+        throw new NotFoundError("Booking not found");
+      }
+
+      if (
+        booking.tenantId !== user.id &&
+        booking.property.ownerId !== user.id
+      ) {
+        throw new PermissionError("Not authorized to access this booking");
+      }
+      break;
+
+    case "reviews":
+      const review = await prisma.review.findUnique({
+        where: { id: resourceId },
+        select: { tenantId: true, property: { select: { ownerId: true } } },
+      });
+
+      if (!review) {
+        throw new NotFoundError("Review not found");
+      }
+
+      if (review.tenantId !== user.id && review.property.ownerId !== user.id) {
+        throw new PermissionError("Not authorized to access this review");
+      }
+      break;
+
+    default:
+      throw new PermissionError(
+        "Ownership verification not supported for this resource"
+      );
+  }
+}
+
+async function createAuditLog(req, user, resource, action) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actionType: action.toUpperCase(),
+        entityType: resource.split("/")[0].toUpperCase(),
+        entityId: isUUID(req.params.id) ? req.params.id : null,
+        userId: user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"] || null,
+        metadata: {
+          method: req.method,
+          path: req.path,
+          params: req.params,
+          query: req.query,
+          resource,
+          action,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error("Failed to create audit log:", error);
+  }
+}
+
+// ==================================================
+// Strict JWT Validation with Enhanced Security
+// ==================================================
+export const strictJWT = (options = {}) => {
+  return (req, res, next) => {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : null;
+
+    if (!token) {
       return res.status(401).json({
         error: "Unauthorized",
-        message: "Invalid token type",
-        code: "INVALID_TOKEN_TYPE",
+        message: "Missing authorization token",
+        code: "TOKEN_MISSING",
       });
     }
 
-    req.jwtPayload = decoded;
-    next();
-  } catch (error) {
-    const response =
-      error.name === "TokenExpiredError"
-        ? {
-            error: "Unauthorized",
-            message: "Token expired",
-            code: "TOKEN_EXPIRED",
-          }
-        : {
-            error: "Unauthorized",
-            message: "Invalid token",
-            code: "INVALID_TOKEN",
-          };
+    try {
+      const decoded = jwt.verify(token, config.get("jwtSecret"), {
+        algorithms: ["HS256"],
+        issuer: config.get("jwtIssuer"),
+        audience: config.get("jwtAudience"),
+        clockTolerance: 30, // 30 seconds tolerance
+        maxAge: options.maxAge || "7d",
+      });
 
-    res
-      .status(401)
-      .header(
-        "Clear-Site-Data",
-        '"cache", "cookies", "storage", "executionContexts"'
-      )
-      .json(response);
-  }
+      if (decoded.type !== "access") {
+        return res.status(401).json({
+          error: "Unauthorized",
+          message: "Invalid token type",
+          code: "INVALID_TOKEN_TYPE",
+        });
+      }
+
+      // Additional security checks
+      if (options.checkIP && decoded.ip !== req.ip) {
+        return res.status(401).json({
+          error: "Unauthorized",
+          message: "Token IP mismatch",
+          code: "IP_MISMATCH",
+        });
+      }
+
+      req.jwtPayload = decoded;
+      next();
+    } catch (error) {
+      const response = {
+        error: "Unauthorized",
+        message:
+          error.name === "TokenExpiredError"
+            ? "Token expired"
+            : "Invalid token",
+        code:
+          error.name === "TokenExpiredError"
+            ? "TOKEN_EXPIRED"
+            : "INVALID_TOKEN",
+      };
+
+      res
+        .status(401)
+        .header(
+          "Clear-Site-Data",
+          '"cache", "cookies", "storage", "executionContexts"'
+        )
+        .json(response);
+    }
+  };
 };
 
-export default authMiddleware;
+export default {
+  authenticateUser,
+  authorizeAccess,
+  strictJWT,
+};

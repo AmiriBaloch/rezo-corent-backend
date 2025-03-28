@@ -21,6 +21,15 @@ export const initializeCasbin = async () => {
       const modelPath = path.resolve("./src/config/casbin/model.conf");
       const enforcer = await newEnforcer(modelPath, adapter);
       if (!enforcer.getModel()) throw new Error("Failed to load Casbin model");
+      if ((await enforcer.getPolicy()).length === 0) {
+        await enforcer.addPolicies([
+          // Super Admin wildcard policy
+          ["superAdmin", "*", "*"],
+          // Default deny policy
+          ["*", "*", "*", "deny"],
+        ]);
+        await enforcer.savePolicy();
+      }
       const policies = await enforcer.getNamedPolicy("p");
       if (!policies.some((p) => p[1] === "*")) {
         logger.error("No fallback policy found");
@@ -104,7 +113,9 @@ export class CasbinPolicyManager {
       }
       return this.enforcer;
     } catch (error) {
-      throw new ConfigurationError(`Casbin initialization failed: ${error.message}`);
+      throw new ConfigurationError(
+        `Casbin initialization failed: ${error.message}`
+      );
     }
   }
 

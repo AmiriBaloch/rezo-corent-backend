@@ -6,7 +6,7 @@ import {
   DatabaseError,
   ConfigurationError,
 } from "../../utils/apiError.js";
-import { CasbinPolicyManager } from "../../config/casbin.js"; // ✅ Casbin Policy Integration
+import { CasbinPolicyManager } from "../../config/casbin.js";
 
 const prisma = new PrismaClient();
 
@@ -46,12 +46,6 @@ class PermissionService {
 
       // ✅ Add policy using initialized enforcer
       await this.policyManager.addPermissionForUser(data.resource, data.action);
-
-      // // ✅ Ensure Casbin enforcer is properly used
-      // if (!this.enforcer) {
-      //   throw new ConfigurationError("Casbin enforcer is not initialized");
-      // }
-      // await this.enforcer.addPermissionForUser(data.resource, data.action);
 
       logger.info(
         `✅ Permission created: ${permission.resource} - ${permission.action}`

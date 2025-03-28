@@ -37,6 +37,25 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum RoomType {
+  BEDROOM
+  BATHROOM
+  LIVING_ROOM
+  KITCHEN
+  DINING_ROOM
+  OTHER
+}
+
+enum AmenityCategory {
+  ESSENTIALS
+  WIFI
+  PARKING
+  POOL
+  KITCHEN
+  HEATING
+  AIR_CONDITIONING
+}
+
 // --------------------------------------------------
 // Core User Model with Security Features
 // --------------------------------------------------
@@ -267,14 +286,22 @@ model Property {
   id           String         @id @default(uuid()) @db.Uuid
   ownerId      String         @db.Uuid
   title        String         @db.VarChar(120)
+  description  String
   basePrice    Decimal        @map("base_price") @db.Money
   currency     String         @default("USD") @db.VarChar(3)
   status       PropertyStatus @default(PENDING)
-  location     Json // { lat: Decimal, lng: Decimal }
+  location     Json // { lat: Decimal, lng: Decimal, plusAccuracy: Float? }
   address      String         @db.VarChar(255)
   maxGuests    Int            @map("max_guests")
   availability Availability[]
   bookings     Booking[]
+  amenities    Amenity[]
+  roomSpecs    RoomSpec[]
+  houseRules   Json? // Flexible rule structure
+  photos       String[]       @default([]) // URLs to high-res images
+  virtualTours String[]       @default([]) // URLs to 360 tours
+  minStay      Int            @default(1) @map("min_stay")
+  maxStay      Int?           @map("max_stay")
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
   deletedAt    DateTime?      @map("deleted_at")
@@ -288,6 +315,29 @@ model Property {
   @@index([status])
   @@index([createdAt])
   @@map("properties")
+}
+
+model RoomSpec {
+  id          String   @id @default(uuid()) @db.Uuid
+  propertyId  String   @db.Uuid
+  type        RoomType
+  count       Int
+  sizeSqft    Int?     @map("size_sqft")
+  description String?
+  property    Property @relation(fields: [propertyId], references: [id])
+
+  @@map("room_specifications")
+}
+
+model Amenity {
+  id          String          @id @default(uuid()) @db.Uuid
+  propertyId  String          @db.Uuid
+  name        String
+  category    AmenityCategory
+  description String?
+  property    Property        @relation(fields: [propertyId], references: [id])
+
+  @@map("amenities")
 }
 
 model Availability {

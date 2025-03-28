@@ -183,6 +183,6 @@ export const swaggerDocs = (app) => {
   logger.info(
     `📚 API documentation available at ${config.get(
       "frontendUrl"
-    )}:${config.get("port")}/api-docs`
+    )}/api-docs`
   );
 };

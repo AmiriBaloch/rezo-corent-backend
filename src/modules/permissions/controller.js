@@ -1,6 +1,5 @@
 import PermissionService from "./service.js";
 import logger from "../../config/logger.js";
-import { validatePermission } from "./schemas.js";
 import {
   BadRequestError,
   NotFoundError,
