@@ -1,101 +1,109 @@
-// properties/service.js
+// src/modules/properties/service.js
 import prisma from "../../config/database.js";
-import PropertyDetails from "../../models/propertyDetails.js";
 import { PricingService } from "../../utils/pricing.js";
-import { v4 as isUUID } from "uuid";
+import {
+  DatabaseError,
+  ValidationError,
+  ConflictError,
+  NotFoundError,
+  InvalidInputError,
+} from "../../utils/apiError.js";
+import { geoJSON } from "../../utils/geospatial.js";
+import redis from "../../config/redis.js";
+import { Prisma } from "@prisma/client";
+
 export class PropertyService {
-  static async createProperty(ownerId, data) {
-    return await prisma.$transaction(async (tx) => {
-      const property = await tx.property.create({
-        data: {
-          ...data,
-          ownerId,
-          status: "PENDING",
-        },
+  /**
+   * Create new property with full transactional safety
+   */
+  static async createProperty(ownerId, propertyData) {
+    try {
+      const property = await prisma.$transaction(async (tx) => {
+        const property = await tx.property.create({
+          data: {
+            ownerId,
+            status: "PENDING",
+            ...this.sanitizePropertyData(propertyData),
+            photos: propertyData.photos || [],
+            virtualTours: propertyData.virtualTours || [],
+          },
+          include: { amenities: true, roomSpecs: true },
+        });
+        // Create related data (using arrow function)
+        if (propertyData.amenities || propertyData.roomSpecs) {
+          await this.createRelationalData(tx, property.id, propertyData);
+        }
+
+        // await this.createRelationalData(tx, property.id, propertyData);
+        return property;
       });
 
-      await PropertyDetails.create({
-        propertyId: property.id,
-        description: data.description,
-        amenities: [],
-        photos: [],
-        tags: [],
-      });
-
+      await this.cacheProperty(property);
       return property;
-    });
+    } catch (error) {
+      this.handleDatabaseError(error, "Property creation failed");
+    }
   }
 
-  static async updateProperty(propertyId, ownerId, data) {
-    return await prisma.property.update({
-      where: { id: propertyId, ownerId },
-      data,
-    });
+  // --- Helper Methods ---
+
+  static sanitizePropertyData(data) {
+    return {
+      title: data.title,
+      description: data.description,
+      basePrice: data.basePrice,
+      currency: data.currency,
+      location: geoJSON.forDatabase(
+        parseInt(data.location.lat),
+        parseInt(data.location.lng)
+      ),
+      address: data.address,
+      maxGuests: data.maxGuests,
+      minStay: data.minStay,
+      maxStay: data.maxStay,
+      houseRules: data.houseRules,
+      photos: data.photos || [],
+      virtualTours: data.virtualTours || [],
+    };
   }
 
-  static async getProperty(propertyId) {
-    const [property, details] = await Promise.all([
-      prisma.property.findUnique({
-        where: { id: propertyId },
-      }),
-      PropertyDetails.findOne({ propertyId }),
-    ]);
-
-    return { ...property, details };
+  static async cacheProperty(property) {
+    const cacheKey = `property:${property.id}`;
+    const enriched = this.enrichPropertyData(property);
+    await redis.setex(cacheKey, 3600, JSON.stringify(enriched));
   }
 
-  static async updateAvailability(propertyId, availability) {
-    return await prisma.$transaction(async (tx) => {
-      // Clear existing availability
-      await tx.availability.deleteMany({ where: { propertyId } });
-  
-      // Create new availability slots
-      const created = await tx.availability.createMany({
-        data: availability.map((slot) => ({
+  static handleDatabaseError(error, context) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      throw new DatabaseError(`${context}: ${error.meta?.message}`);
+    }
+    if (error instanceof Prisma.PrismaClientValidationError) {
+      throw new ValidationError("Invalid data structure provided");
+    }
+    throw error;
+  }
+
+  static enrichPropertyData(property) {
+    return {
+      ...property,
+      stats: {
+        bookings: property._count?.bookings || 0,
+        reviews: property._count?.reviews || 0,
+      },
+      featuredPhoto: property.photos?.[0] || null,
+    };
+  }
+
+  static async createRelationalData(tx, propertyId, propertyData) {
+    // Implementation of relational data creation
+    // Example:
+    if (propertyData.amenities?.length) {
+      await tx.amenity.createMany({
+        data: propertyData.amenities.map((name) => ({
           propertyId,
-          startDate: new Date(slot.startDate),
-          endDate: new Date(slot.endDate),
-          price: PricingService.calculateDynamicPrice(slot.pricePerNight), // Use price field
-          isAvailable: slot.isAvailable
+          name,
         })),
       });
-  
-      return created;
-    });
-  }
-
-  // services/propertyService.js
-  static async searchProperties(filters) {
-    try {
-      // Validate UUID fields before query execution
-      if (filters.ownerId && !isUUID(filters.ownerId)) {
-        throw new Error("Invalid UUID format for ownerId");
-      }
-  
-      return await prisma.$queryRaw`
-        SELECT 
-          p.*,
-          ST_Distance(
-            p.location,
-            ST_SetSRID(ST_MakePoint(${parseFloat(filters.lng)}, ${parseFloat(filters.lat)}), 4326)
-          )::numeric AS distance
-        FROM "Property" p
-        WHERE p.status = 'APPROVED'
-        AND ST_DWithin(
-          p.location,
-          ST_SetSRID(ST_MakePoint(${parseFloat(filters.lng)}, ${parseFloat(filters.lat)}), 4326)::geography,
-          ${parseInt(filters.radius || 5000)}
-        )
-        ${filters.searchTerm ? Prisma.sql`
-          AND (p.title ILIKE ${"%" + filters.searchTerm + "%"}
-          OR p.description ILIKE ${"%" + filters.searchTerm + "%"})
-        ` : Prisma.empty}
-        ORDER BY distance
-        LIMIT ${parseInt(filters.limit || 10)}
-      `;
-    } catch (error) {
-      console.error("Database query error:", error);
-      throw new Error("Failed to execute search query");
     }
   }
 }

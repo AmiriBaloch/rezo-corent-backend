@@ -313,6 +313,10 @@ model Property {
 
   @@index([ownerId])
   @@index([status])
+  @@index([basePrice])
+  @@index([maxGuests])
+  @@index([minStay])
+  @@index([maxStay])
   @@index([createdAt])
   @@map("properties")
 }

@@ -121,6 +121,12 @@ export class BookingError extends ApiError {
   }
 }
 
+export class InvalidInputError extends ApiError {
+  constructor(message = "Invalid input") {
+    super("INVALID_INPUT", 400, message, "Invalid input provided");
+  }
+}
+
 export class InternalServerError extends ApiError {
   constructor(message = "Internal server error") {
     super("INTERNAL_SERVER_ERROR", 500, message, "Internal server error");
