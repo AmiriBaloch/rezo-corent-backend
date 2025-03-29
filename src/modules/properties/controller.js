@@ -3,10 +3,11 @@ import { PropertyService } from "./service.js";
 import { propertySchema, validateWithJoi } from "./schema.js";
 import {
   ApiError,
-  AuthError,
+  AuthError as AuthorizationError ,
   BadRequestError,
   InvalidInputError,
   NotFoundError,
+  ValidationError,
 } from "../../utils/apiError.js";
 import { logger } from "../../config/logger.js";
 import Joi from "joi";
@@ -112,19 +113,67 @@ export class PropertyController {
     try {
       const { page = 1, limit = 10 } = await Joi.object({
         page: Joi.number().min(1).default(1),
-        limit: Joi.number().min(1).max(100).default(10)
+        limit: Joi.number().min(1).max(100).default(10),
       }).validateAsync(req.query);
-  
-      const result = await PropertyService.listApprovedProperties({ page, limit });
-      
-      res.header('Cache-Control', 'public, max-age=300').json(result);
+
+      const result = await PropertyService.listApprovedProperties({
+        page,
+        limit,
+      });
+
+      res.header("Cache-Control", "public, max-age=300").json(result);
     } catch (error) {
       res.status(error.statusCode || 500).json({
-        error: error.message || 'Failed to fetch properties'
+        error: error.message || "Failed to fetch properties",
       });
     }
   }
-  
+
+  static async getOwnerProperties(req, res) {
+    try {
+      const requestedOwnerId = req.params.ownerId || req.user.id;
+      const isOwnerRequest = requestedOwnerId === req.user.id;
+
+      // Validate access rights
+      if (!isOwnerRequest && req.user.role !== "admin") {
+        throw new AuthError("Unauthorized access");
+      }
+
+      const result = await PropertyService.getOwnerProperties(
+        requestedOwnerId,
+        {
+          page: Math.max(1, parseInt(req.query.page) || 1),
+          limit: Math.min(100, Math.max(1, parseInt(req.query.limit) || 10)),
+          isOwnerRequest,
+        }
+      );
+
+      res.set("Cache-Control", "public, max-age=300").json(result);
+    } catch (error) {
+      const status = error.statusCode || 500;
+      res.status(status).json({
+        error: status === 500 ? "Internal server error" : error.message,
+      });
+    }
+  }
+
+  static async getPublicOwnerProperties(req, res) {
+    try {
+      const result = await PropertyService.getPublicOwnerProperties(
+        req.params.ownerId,
+        {
+          page: Math.max(1, parseInt(req.query.page) || 1),
+          limit: Math.min(100, Math.max(1, parseInt(req.query.limit) || 10)),
+        }
+      );
+      res.json(result);
+    } catch (error) {
+      res.status(error.statusCode || 500).json({
+        error: error.message || "Failed to fetch properties",
+      });
+    }
+  }
+
   // static async updateProperty(req, res) {
   //   try {
   //     // const data = PropertySchema.partial().parse();
@@ -140,43 +189,92 @@ export class PropertyController {
   //   }
   // }
 
+  static async updateAvailability(req, res) {
+    try {
+      const { id: propertyId } = req.params;
+      const availabilitySlots = req.body;
 
+      // Validate property ID format
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          propertyId
+        )
+      ) {
+        throw new ValidationError("Invalid property ID format");
+      }
 
-  // static async updateAvailability(req, res) {
-  //   try {
-  //     const availability = req.body;
-  //     const propertyId = req.params.id;
+      // Validate input structure
+      if (!Array.isArray(availabilitySlots) || availabilitySlots.length === 0) {
+        throw new ValidationError(
+          "Availability data must be a non-empty array"
+        );
+      }
 
-  //     // Validate input structure
-  //     if (!Array.isArray(availability)) {
-  //       return res
-  //         .status(400)
-  //         .json({ error: "Availability data must be an array" });
-  //     }
+      // Basic slot validation
+      const validatedSlots = availabilitySlots.map((slot, index) => {
+        if (
+          !slot.startDate ||
+          !slot.endDate ||
+          typeof slot.basePrice === "undefined"
+        ) {
+          throw new ValidationError(
+            `Slot ${
+              index + 1
+            } missing required fields (startDate, endDate, basePrice)`
+          );
+        }
 
-  //     // Validate each slot
-  //     for (const slot of availability) {
-  //       if (!slot.startDate || !slot.endDate || !slot.pricePerNight) {
-  //         return res.status(400).json({
-  //           error: "Missing required fields in availability slot",
-  //           requiredFields: ["startDate", "endDate", "pricePerNight"],
-  //         });
-  //       }
-  //     }
+        return {
+          ...slot,
+          startDate: new Date(slot.startDate),
+          endDate: new Date(slot.endDate),
+          basePrice: Number(slot.basePrice),
+        };
+      });
 
-  //     const result = await PropertyService.updateAvailability(
-  //       propertyId,
-  //       availability
-  //     );
-  //     res.json(result);
-  //   } catch (error) {
-  //     console.error("Availability update error:", error);
-  //     res.status(400).json({
-  //       error: "Invalid availability data",
-  //       details: error.message,
-  //     });
-  //   }
-  // }
+      // Verify property ownership (unless admin)
+      if (req.user.role !== "admin") {
+        const property = await prisma.property.findUnique({
+          where: { id: propertyId },
+          select: { ownerId: true },
+        });
+
+        // if (!property || property.ownerId !== req.user.id) {
+        //   throw new AuthorizationError(
+        //     "You don't have permission to update this property's availability"
+        //   );
+        // }
+      }
+
+      // Process update
+      const result = await PropertyService.updateAvailability(
+        propertyId,
+        validatedSlots
+      );
+
+      res.json({
+        success: true,
+        updatedSlots: result.updatedSlots,
+        message: "Availability successfully updated",
+      });
+    } catch (error) {
+      const statusCode =
+        error.statusCode ||
+        (error instanceof ValidationError
+          ? 400
+          : error instanceof AuthorizationError
+          ? 403
+          : 500);
+
+      res.status(statusCode).json({
+        error: error.message || "Availability update failed",
+        ...(process.env.NODE_ENV === "development" && {
+          details: error.details,
+          stack: error.stack,
+        }),
+      });
+    }
+  }
 
   // static async searchProperties(req, res) {
   //   try {
