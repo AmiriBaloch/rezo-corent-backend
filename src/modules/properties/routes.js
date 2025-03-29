@@ -8,6 +8,9 @@ import {
 import prisma from "../../config/database.js";
 
 const router = Router();
+// Public routes
+router.get("/:id", PropertyController.getProperty);
+router.get("/", PropertyController.listApprovedProperties);
 
 // Property owner routes
 router.post(
@@ -73,8 +76,7 @@ router.delete(
 //   }),
 //   PropertyController.updateAvailability
 // );
-// // // Public routes
-// router.get("/:id", PropertyController.getProperty);
+
 // router.get(
 //   "/search",
 //   (req, res, next) => {

@@ -94,6 +94,37 @@ export class PropertyController {
       next(error);
     }
   }
+
+  static async getProperty(req, res) {
+    try {
+      const property = await PropertyService.getProperty(req.params.id);
+
+      res
+        .set("Cache-Control", "public, max-age=3600")
+        .json(property || { error: "Not found" });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({
+        error: error.message || "Failed to retrieve property",
+      });
+    }
+  }
+  static async listApprovedProperties(req, res) {
+    try {
+      const { page = 1, limit = 10 } = await Joi.object({
+        page: Joi.number().min(1).default(1),
+        limit: Joi.number().min(1).max(100).default(10)
+      }).validateAsync(req.query);
+  
+      const result = await PropertyService.listApprovedProperties({ page, limit });
+      
+      res.header('Cache-Control', 'public, max-age=300').json(result);
+    } catch (error) {
+      res.status(error.statusCode || 500).json({
+        error: error.message || 'Failed to fetch properties'
+      });
+    }
+  }
+  
   // static async updateProperty(req, res) {
   //   try {
   //     // const data = PropertySchema.partial().parse();
@@ -109,14 +140,7 @@ export class PropertyController {
   //   }
   // }
 
-  // static async getProperty(req, res) {
-  //   try {
-  //     const property = await PropertyService.getProperty(req.params.id);
-  //     res.json(property);
-  //   } catch (error) {
-  //     res.status(404).json({ error: "Property not found" });
-  //   }
-  // }
+
 
   // static async updateAvailability(req, res) {
   //   try {
