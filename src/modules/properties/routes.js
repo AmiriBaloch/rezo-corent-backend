@@ -27,6 +27,23 @@ router.post(
   PropertyController.createProperty
 );
 
+router.delete(
+  "/:id",
+  authenticateUser(),
+  (req, res, next) => {
+    // First try with create permission
+    authorizeAccess("properties", "create")(req, res, (err) => {
+      if (err) {
+        // If create fails, try with manage permission
+        authorizeAccess("properties", "manage")(req, res, next);
+      } else {
+        next();
+      }
+    });
+  },
+  PropertyController.deleteProperty
+);
+
 // router.put(
 //   "/:id",
 //   authenticateUser(),

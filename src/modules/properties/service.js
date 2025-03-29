@@ -45,6 +45,56 @@ export class PropertyService {
     }
   }
 
+  /**
+   * Safely delete property with archival pattern
+   */
+  static async deleteProperty(propertyId, ownerId = null) {
+    try {
+      console.log("Sanitized Property ID in service:", propertyId);
+      
+      const whereClause = {
+        id: propertyId,
+        status: { not: "ARCHIVED" }
+      };
+  
+      if (ownerId) {
+        whereClause.ownerId = ownerId;
+      }
+  
+      const property = await prisma.$transaction(async (tx) => {
+        // 1. Soft delete the property
+        const deletedProperty = await tx.property.update({
+          where: whereClause,
+          data: {
+            deletedAt: new Date(),
+            status: "ARCHIVED",
+          },
+        });
+  
+        // 2. Delete related data using single transaction
+        await Promise.all([
+          tx.amenity.deleteMany({ where: { propertyId }}),
+          tx.roomSpec.deleteMany({ where: { propertyId }}),
+          tx.availability.deleteMany({ where: { propertyId }})
+        ]);
+  
+        return deletedProperty;
+      });
+  
+      // 3. Clean cache and search index
+      await Promise.all([
+        redis.del(`property:${propertyId}`),
+        // SearchIndexService.remove(propertyId),
+      ]);
+  
+      return property;
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundError("Property not found or already deleted");
+      }
+      this.handleDatabaseError(error, "Property deletion failed");
+    }
+  }
   // --- Helper Methods ---
 
   static sanitizePropertyData(data) {

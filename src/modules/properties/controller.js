@@ -1,9 +1,16 @@
 // properties/controller.js
 import { PropertyService } from "./service.js";
 import { propertySchema, validateWithJoi } from "./schema.js";
-import { AuthError } from "../../utils/apiError.js";
+import {
+  ApiError,
+  AuthError,
+  BadRequestError,
+  InvalidInputError,
+  NotFoundError,
+} from "../../utils/apiError.js";
 import { logger } from "../../config/logger.js";
-
+import Joi from "joi";
+import prisma from "../../config/database.js";
 export class PropertyController {
   static async createProperty(req, res, next) {
     try {
@@ -11,23 +18,21 @@ export class PropertyController {
       if (!req.user?.id) {
         throw new AuthError("Authentication required");
       }
-      console.log(`${req.user?.id}`);
       // 2. Validate input with reusable Joi validator
-      // const { error, value: validatedData } = validateWithJoi(
-      //   propertySchema,
-      //   req.body
-      // );
+      const { error, value: validatedData } = validateWithJoi(
+        propertySchema,
+        req.body
+      );
 
-      // if (error) {
-      //   logger.error("Validation errors:", error.details); // Add this
-      //   console.log("\n \n Validation errors:", error.details, "\n \n");
-      //   throw new Error(400, "Validation failed", error.details);
-      // }
+      if (error) {
+        logger.error("Validation errors:", error.details); // Add this
+        throw new BadRequestError(`${error.message}`);
+      }
 
       // 3. Create property
       const property = await PropertyService.createProperty(
         req.user.id,
-        req.body
+        validatedData
       );
 
       // 4. Success response
@@ -37,6 +42,55 @@ export class PropertyController {
       });
     } catch (error) {
       // Pass to error handling middleware
+      next(error);
+    }
+  }
+
+  static async deleteProperty(req, res, next) {
+    try {
+      if (!req.user?.id) {
+        throw new AuthError("Authentication required");
+      }
+
+      // Sanitize and validate property ID
+      const rawPropertyId = req.params.id;
+      const propertyId = rawPropertyId.replace(/[^0-9a-f-]/gi, "");
+
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          propertyId
+        )
+      ) {
+        throw new InvalidInputError("Invalid property ID format");
+      }
+
+      const user = req.user;
+
+      // Authorization check
+      if (user.role === "owner") {
+        const property = await prisma.property.findUnique({
+          where: { id: propertyId },
+          select: { ownerId: true },
+        });
+
+        if (!property) throw new NotFoundError("Property not found");
+        if (property.ownerId !== user.id)
+          throw new AuthError("Unauthorized access");
+      }
+
+      await PropertyService.deleteProperty(
+        propertyId,
+        user.role === "admin" ? null : user.id
+      );
+
+      res.status(204).end();
+    } catch (error) {
+      logger.error(`Property deletion failed: ${error.message}`, {
+        rawPropertyId: req.params.id,
+        // sanitizedId: propertyId,
+        userId: req.user?.id,
+        stack: error.stack,
+      });
       next(error);
     }
   }
