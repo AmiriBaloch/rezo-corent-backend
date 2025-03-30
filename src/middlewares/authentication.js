@@ -41,19 +41,19 @@ initializeEnforcer();
 // ==================================================
 function resolveResourcePattern(pattern, req) {
   if (!pattern) {
-    throw new Error('Resource pattern is required');
+    throw new Error("Resource pattern is required");
   }
 
   return pattern
-    .split('/')
-    .map(segment => {
-      if (segment.startsWith(':')) {
+    .split("/")
+    .map((segment) => {
+      if (segment.startsWith(":")) {
         const paramName = segment.slice(1);
         const paramValue = req.params[paramName] || req.body[paramName];
         if (!paramValue) {
           logger.warn(`Missing parameter ${paramName} in request`, {
             params: req.params,
-            body: req.body
+            body: req.body,
           });
           throw new Error(`Missing required parameter: ${paramName}`);
         }
@@ -61,7 +61,7 @@ function resolveResourcePattern(pattern, req) {
       }
       return segment;
     })
-    .join('/');
+    .join("/");
 }
 // ==================================================
 // Enhanced Authentication Middleware
@@ -338,7 +338,7 @@ async function createAuditLog(req, user, resource, action) {
         actionType: action.toUpperCase(),
         entityType: resource.split("/")[0].toUpperCase(),
         entityId: isUUID(req.params.id) ? req.params.id : null,
-        userId: user.id,
+        user: { connect: { id: user.id } },
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"] || null,
         metadata: {

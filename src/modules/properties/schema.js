@@ -4,7 +4,7 @@ import Joi from "joi";
 // Reusable validation schemas
 export const propertySchema = Joi.object({
   title: Joi.string().min(5).max(120).required(),
-  description: Joi.string().min(50).max(2000).required(),
+  description: Joi.string().min(20).max(2000).required(),
   basePrice: Joi.number().positive().required(),
   currency: Joi.string().length(3).default("USD"),
   address: Joi.string().max(255).required(),

@@ -3,7 +3,7 @@ import { PropertyService } from "./service.js";
 import { propertySchema, validateWithJoi } from "./schema.js";
 import {
   ApiError,
-  AuthError as AuthorizationError ,
+  AuthError as AuthorizationError,
   BadRequestError,
   InvalidInputError,
   NotFoundError,
@@ -174,20 +174,27 @@ export class PropertyController {
     }
   }
 
-  // static async updateProperty(req, res) {
-  //   try {
-  //     // const data = PropertySchema.partial().parse();
-  //     const data = req.body;
-  //     const property = await PropertyService.updateProperty(
-  //       req.params.id,
-  //       req.user.id,
-  //       data
-  //     );
-  //     res.json(property);
-  //   } catch (error) {
-  //     res.status(403).json({ error: "Update failed" });
-  //   }
-  // }
+  static async updateProperty(req, res) {
+    try {
+      // const data = PropertySchema.partial().parse();
+      console.log(
+        "Checking the request ===========> \n",
+        "User info ====>",req.user,
+        "Request  body ====>",req.body,
+        "Request  params ====>",req.params,
+        "\n =========================="
+      );
+      const data = req.body;
+      const property = await PropertyService.updateProperty(
+        req.params.id,
+        req.user.id,
+        data
+      );
+      res.json(property);
+    } catch (error) {
+      res.status(403).json({ error: "Update failed" });
+    }
+  }
 
   static async updateAvailability(req, res) {
     try {

@@ -7,6 +7,7 @@ import {
   ConflictError,
   NotFoundError,
   InvalidInputError,
+  AuthError,
 } from "../../utils/apiError.js";
 import { geoJSON } from "../../utils/geospatial.js";
 import redis from "../../config/redis.js";
@@ -243,13 +244,12 @@ export class PropertyService {
     }
   }
 
-
   /**
    * Fetches a paginated list of public properties for a given owner.
-   * 
-   * This method retrieves properties that are approved and not deleted, 
+   *
+   * This method retrieves properties that are approved and not deleted,
    * with support for caching and pagination. It also validates the owner ID format.
-   * 
+   *
    * @param {string} ownerId - The UUID of the property owner.
    * @param {Object} options - Pagination options.
    * @param {number} [options.page=1] - The page number to retrieve.
@@ -266,7 +266,11 @@ export class PropertyService {
 
     try {
       // Validate UUID format
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerId)) {
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          ownerId
+        )
+      ) {
         throw new ValidationError("Invalid owner ID format");
       }
 
@@ -280,7 +284,7 @@ export class PropertyService {
           where: {
             ownerId,
             status: "APPROVED",
-            deletedAt: null
+            deletedAt: null,
           },
           select: {
             id: true,
@@ -289,39 +293,41 @@ export class PropertyService {
             photos: true,
             amenities: { select: { name: true } },
             roomSpecs: { select: { type: true, count: true } },
-            _count: { select: { reviews: true } }
+            _count: { select: { reviews: true } },
           },
           skip: (page - 1) * limit,
           take: limit,
-          orderBy: { createdAt: "desc" }
+          orderBy: { createdAt: "desc" },
         }),
         prisma.property.count({
-          where: { 
+          where: {
             ownerId,
             status: "APPROVED",
-            deletedAt: null
-          }
-        })
+            deletedAt: null,
+          },
+        }),
       ]);
 
       // Transform data
       const result = {
-        data: properties.map(p => ({
+        data: properties.map((p) => ({
           ...p,
-          rating: p._count.reviews > 0 ? (p.totalRating / p._count.reviews) : null,
-          featuredPhoto: p.photos?.[0]
+          rating:
+            p._count.reviews > 0 ? p.totalRating / p._count.reviews : null,
+          featuredPhoto: p.photos?.[0],
         })),
         meta: {
           page,
           limit,
           total,
-          totalPages: Math.ceil(total / limit)
-        }
+          totalPages: Math.ceil(total / limit),
+        },
       };
 
       // Cache with error handling
-      redis.setex(cacheKey, CACHE_TTL, JSON.stringify(result))
-        .catch(err => console.error("Cache Error:", err));
+      redis
+        .setex(cacheKey, CACHE_TTL, JSON.stringify(result))
+        .catch((err) => console.error("Cache Error:", err));
 
       return result;
     } catch (error) {
@@ -329,94 +335,101 @@ export class PropertyService {
     }
   }
 
-   /**
+  /**
    * Sophisticated availability management with conflict detection
    */
 
-   static async updateAvailability(propertyId, availabilitySlots) {
+  static async updateAvailability(propertyId, availabilitySlots) {
     try {
       // Validate input structure
       if (!availabilitySlots?.length) {
         throw new ValidationError("At least one availability slot required");
       }
-  
+
       return await prisma.$transaction(async (tx) => {
         // 1. Validate slots before any DB operations
-        const validatedSlots = availabilitySlots.map(slot => {
+        const validatedSlots = availabilitySlots.map((slot) => {
           const startDate = new Date(slot.startDate);
           const endDate = new Date(slot.endDate);
-          
+
           if (isNaN(startDate) || isNaN(endDate)) {
-            throw new ValidationError("Invalid date format in availability slots");
+            throw new ValidationError(
+              "Invalid date format in availability slots"
+            );
           }
           if (startDate >= endDate) {
             throw new ValidationError("Start date must be before end date");
           }
-          if (typeof slot.basePrice !== 'number' || slot.basePrice < 0) {
+          if (typeof slot.basePrice !== "number" || slot.basePrice < 0) {
             throw new ValidationError("Invalid base price");
           }
-  
+
           return {
             ...slot,
             startDate,
             endDate,
-            price: PricingService.calculateDynamicPrice(slot.basePrice, slot.dates)
+            price: PricingService.calculateDynamicPrice(
+              slot.basePrice,
+              slot.dates
+            ),
           };
         });
-  
+
         // 2. Check for slot overlaps in input
-        const sortedSlots = validatedSlots.sort((a, b) => a.startDate - b.startDate);
+        const sortedSlots = validatedSlots.sort(
+          (a, b) => a.startDate - b.startDate
+        );
         for (let i = 1; i < sortedSlots.length; i++) {
-          if (sortedSlots[i].startDate < sortedSlots[i-1].endDate) {
-            throw new ConflictError("Availability slots cannot overlap each other");
+          if (sortedSlots[i].startDate < sortedSlots[i - 1].endDate) {
+            throw new ConflictError(
+              "Availability slots cannot overlap each other"
+            );
           }
         }
-  
+
         // 3. Find overlapping bookings
         const bookingConflict = await tx.booking.findFirst({
           where: {
             propertyId,
             status: { not: "CANCELLED" },
-            OR: validatedSlots.map(slot => ({
+            OR: validatedSlots.map((slot) => ({
               AND: [
                 { startDate: { lt: slot.endDate } },
-                { endDate: { gt: slot.startDate } }
-              ]
-            }))
+                { endDate: { gt: slot.startDate } },
+              ],
+            })),
           },
-          select: { id: true, startDate: true, endDate: true }
+          select: { id: true, startDate: true, endDate: true },
         });
-  
+
         if (bookingConflict) {
           throw new ConflictError(
             `Conflicts with booking ${bookingConflict.id} ` +
-            `(${bookingConflict.startDate.toISOString()} - ` +
-            `${bookingConflict.endDate.toISOString()})`
+              `(${bookingConflict.startDate.toISOString()} - ` +
+              `${bookingConflict.endDate.toISOString()})`
           );
         }
-  
+
         // 4. Atomic update in batches
         await tx.availability.deleteMany({ where: { propertyId } });
-        
+
         const BATCH_SIZE = 100;
         for (let i = 0; i < validatedSlots.length; i += BATCH_SIZE) {
           await tx.availability.createMany({
-            data: validatedSlots
-              .slice(i, i + BATCH_SIZE)
-              .map(slot => ({
-                propertyId,
-                startDate: slot.startDate,
-                endDate: slot.endDate,
-                price: slot.price,
-                isAvailable: slot.isAvailable
-              })),
-            skipDuplicates: true
+            data: validatedSlots.slice(i, i + BATCH_SIZE).map((slot) => ({
+              propertyId,
+              startDate: slot.startDate,
+              endDate: slot.endDate,
+              price: slot.price,
+              isAvailable: slot.isAvailable,
+            })),
+            skipDuplicates: true,
           });
         }
-  
+
         // 5. Update search index after successful transaction
         // await SearchIndexService.refreshPricing(propertyId);
-  
+
         return { success: true, updatedSlots: validatedSlots.length };
       });
     } catch (error) {
@@ -477,6 +490,89 @@ export class PropertyService {
       this.handleDatabaseError(error, "Property deletion failed");
     }
   }
+
+  /**
+   * Full property update with complex data relationships
+   */
+  static async updateProperty(propertyId, ownerId, updateData) {
+    const CACHE_TTL = 3600; // 1 hour
+    try {
+      
+
+      // Verify property ownership first
+      const existingProperty = await prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { ownerId: true, status: true },
+      });
+
+      if (!existingProperty) throw new NotFoundError("Property not found");
+      // if (existingProperty.ownerId !== ownerId) {
+      //   throw new AuthError("Unauthorized property update");
+      // }
+
+      const updatedProperty = await prisma.$transaction(async (tx) => {
+        //  Core property update
+        const property = await tx.property.update({
+          where: { id: propertyId },
+          data: this.sanitizePropertyData(updateData),
+          include: { amenities: true, roomSpecs: true },
+        });
+
+        //  Conditional relational data updates
+        const updateOperations = [];
+
+        if (updateData.amenities) {
+          updateOperations.push(
+            tx.amenity.deleteMany({ where: { propertyId } }),
+            tx.amenity.createMany({
+              data: updateData.amenities.map((amenity) => ({
+                propertyId,
+                ...amenity,
+              })),
+              skipDuplicates: true,
+            })
+          );
+        }
+
+        if (updateData.roomSpecs) {
+          updateOperations.push(
+            tx.roomSpec.deleteMany({ where: { propertyId } }),
+            tx.roomSpec.createMany({
+              data: updateData.roomSpecs.map((spec) => ({
+                propertyId,
+                ...spec,
+              })),
+            })
+          );
+        }
+
+        if (updateOperations.length > 0) {
+          await Promise.all(updateOperations);
+        }
+
+        return property;
+      });
+
+      //  Post-update operations
+      await Promise.all([
+        redis.del(`property:${propertyId}`),
+        SearchIndexService.update(propertyId),
+        redis.setex(
+          `property:${propertyId}`,
+          CACHE_TTL,
+          JSON.stringify(this.enrichPropertyData(updatedProperty))
+        ),
+      ]);
+
+      return updatedProperty;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        this.handleDatabaseError(error, "Database update failed");
+      }
+      throw error;
+    }
+  }
+
   // --- Helper Methods ---
 
   static sanitizePropertyData(data) {

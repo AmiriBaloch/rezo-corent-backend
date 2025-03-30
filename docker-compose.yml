@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb_container
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+      MONGODB_URI: "mongodb://localhost:27017/corent"
+    volumes:
+      - mongodb_data:/data/db
+
+  postgres:
+    image: postgres:latest
+    container_name: postgres_container
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: PadSplit_2
+      DATABASE_URL: "postgresql://postgres:admin@localhost:5432/PadSplit_2?schema=public"
+    volumes:
+      - pgsql_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:latest
+    container_name: redis_container
+    restart: always
+    ports:
+      - "6379:6379"
+    environment:
+      REDIS_URL: "redis://localhost:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mongodb_data:
+  pgsql_data:
+  redis_data:

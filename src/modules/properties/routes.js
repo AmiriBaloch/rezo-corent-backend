@@ -67,16 +67,28 @@ router.delete(
   },
   PropertyController.deleteProperty
 );
+router.put(
+  "/:id",
+  authenticateUser(),
+  // authorizeAccess("properties", "manage"),
+  PropertyController.updateProperty
+);
 
 // router.put(
 //   "/:id",
 //   authenticateUser(),
 //   authorizeAccess("properties", "manage", {
 //     resourceOwnerId: async (req) => {
+//       console.log(
+//         "Checking the request ===========> \n",
+//         req,
+//         "\n =========================="
+//       );
 //       const property = await prisma.property.findUnique({
 //         where: { id: req.params.id },
 //         select: { ownerId: true },
 //       });
+
 //       if (!property) throw new Error("Property not found");
 //       return property.ownerId;
 //     },
@@ -111,6 +123,7 @@ router.patch(
 // ); // Serach is not working
 
 // Admin routes
+
 router.patch(
   "/:id/status",
   authenticateUser(),
