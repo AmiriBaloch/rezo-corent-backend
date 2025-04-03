@@ -1,9 +1,10 @@
 import express from "express";
 import userRoleController from "./controller.js";
-import authMiddleware from "../../middlewares/authentication.js";
+import { authenticateUser } from "../../middlewares/authentication.js";
 import validateRequest from "../../middlewares/validate.js";
 
 const router = express.Router();
+router.use(authenticateUser());
 
 /**
  * @route POST /user-roles/assign
@@ -11,10 +12,10 @@ const router = express.Router();
  * @access Admin only
  */
 router.post(
-    "/assign",
-    authMiddleware(["admin"]),
-    // validateRequest("assignRoleSchema"),
-    (req, res, next) => userRoleController.assignRole(req, res, next)
+  "/assign",
+  // authMiddleware(["admin"]),
+  // validateRequest("assignRoleSchema"),
+  (req, res, next) => userRoleController.assignRole(req, res, next)
 );
 
 /**
@@ -23,10 +24,10 @@ router.post(
  * @access Admin only
  */
 router.delete(
-    "/remove",
-    authMiddleware(["admin"]),
-    validateRequest("removeRoleSchema"),
-    (req, res, next) => userRoleController.removeRole(req, res, next)
+  "/remove",
+  // authMiddleware(["admin"]),
+  validateRequest("removeRoleSchema"),
+  (req, res, next) => userRoleController.removeRole(req, res, next)
 );
 
 /**
@@ -34,10 +35,10 @@ router.delete(
  * @desc Get roles of a user
  * @access Admin/User
  */
-router.get("/:userId", 
-    authMiddleware(),
-     (req, res, next) =>
-    userRoleController.listUserRoles(req, res, next)
+router.get(
+  "/:userId",
+  // authMiddleware(),
+  (req, res, next) => userRoleController.listUserRoles(req, res, next)
 );
 
 export default router;

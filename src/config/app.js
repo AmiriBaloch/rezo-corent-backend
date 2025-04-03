@@ -15,8 +15,13 @@ import { swaggerDocs } from "./swagger.js";
 import { initializeCasbin } from "../config/casbin.js";
 import { connectMongoDB, disconnectMongoDB } from "./mongodb.js";
 import mongoose from "mongoose";
+import { setupWebSocket, getIO } from '../websocket/index.js';
+import { createServer } from 'http';
 
 const app = express();
+const server = createServer(app);
+
+
 
 // ========================
 // Security Middleware
@@ -54,6 +59,8 @@ app.use(
 // Initialize Casbin on startup
 //======================================
 initializeCasbin();
+// Setup WebSocket
+setupWebSocket(server);
 // ========================
 // Rate Limiting
 // ========================
@@ -147,6 +154,8 @@ app.get("/", async (req, res) => {
 // Application Routes
 // ========================
 app.use("/api", routes);
+
+
 
 // ========================
 // Error Handling

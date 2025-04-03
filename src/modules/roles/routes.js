@@ -1,7 +1,7 @@
 import express from "express";
 import { RoleController } from "./controller.js";
 import RoleService from "./service.js";
-import authMiddleware from "../../middlewares/authentication.js";
+import { authenticateUser } from "../../middlewares/authentication.js";
 import validateRequest from "../../middlewares/validate.js";
 import {
   createRoleSchema,
@@ -11,6 +11,7 @@ import {
 
 const router = express.Router();
 const roleController = new RoleController(RoleService);
+router.use(authenticateUser());
 
 /**
  * @route POST /roles
@@ -19,7 +20,7 @@ const roleController = new RoleController(RoleService);
  */
 router.post(
   "/",
-  authMiddleware(), // Restrict access to admins
+  // authMiddleware(), // Restrict access to admins
   validateRequest(createRoleSchema), // Validate request body
   (req, res, next) => roleController.createRole(req, res, next)
 );
@@ -31,7 +32,7 @@ router.post(
  */
 router.get(
   "/",
-  authMiddleware(), // Restrict access based on permissions
+  // authMiddleware(), // Restrict access based on permissions
   (req, res, next) => roleController.listRoles(req, res, next)
 );
 
@@ -40,10 +41,10 @@ router.get(
  * @desc Get details of a specific role
  * @access Users with "user.read" permission
  */
-router.get("/:id",
-   authMiddleware(),
-    (req, res, next) =>
-  roleController.getRole(req, res, next)
+router.get(
+  "/:id",
+  //  authMiddleware(),
+  (req, res, next) => roleController.getRole(req, res, next)
 );
 
 /**
@@ -53,7 +54,7 @@ router.get("/:id",
  */
 router.patch(
   "/:id",
-  authMiddleware(),
+  // authMiddleware(),
   validateRequest(updateRoleSchema),
   (req, res, next) => roleController.updateRole(req, res, next)
 );
@@ -63,8 +64,10 @@ router.patch(
  * @desc Soft-delete a role
  * @access Admin only
  */
-router.delete("/:id", authMiddleware(), (req, res, next) =>
-  roleController.deleteRole(req, res, next)
+router.delete(
+  "/:id",
+  // authMiddleware(),
+  (req, res, next) => roleController.deleteRole(req, res, next)
 );
 
 /**
@@ -74,7 +77,7 @@ router.delete("/:id", authMiddleware(), (req, res, next) =>
  */
 router.post(
   "/:id/permissions",
-  authMiddleware(),
+  // authMiddleware(),
   // validateRequest(assignPermissionsSchema),
   (req, res, next) => roleController.assignPermissions(req, res, next)
 );

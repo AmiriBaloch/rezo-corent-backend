@@ -56,20 +56,42 @@ enum AmenityCategory {
   AIR_CONDITIONING
 }
 
+enum UserStatus {
+  ONLINE
+  OFFLINE
+  AWAY
+  BUSY
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  NON_BINARY
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
 // --------------------------------------------------
 // Core User Model with Security Features
 // --------------------------------------------------
 model User {
-  id                  String            @id @default(uuid()) @db.Uuid
-  email               String            @unique @db.VarChar(255)
-  username            String?           @unique @db.VarChar(50)
-  passwordHash        String?           @map("password_hash") // Nullable for OAuth users
-  isActive            Boolean           @default(true) @map("is_active")
-  isVerified          Boolean           @default(false) @map("is_verified")
-  mfaEnabled          Boolean           @default(false) @map("mfa_enabled")
-  lastLogin           DateTime?         @map("last_login")
-  failedLoginAttempts Int               @default(0) @map("failed_login_attempts")
-  lockedUntil         DateTime?         @map("locked_until")
+  id                  String                    @id @default(uuid()) @db.Uuid
+  email               String                    @unique @db.VarChar(255)
+  username            String?                   @unique @db.VarChar(50)
+  passwordHash        String?                   @map("password_hash") // Nullable for OAuth users
+  isActive            Boolean                   @default(true) @map("is_active")
+  isVerified          Boolean                   @default(false) @map("is_verified")
+  mfaEnabled          Boolean                   @default(false) @map("mfa_enabled")
+  lastLogin           DateTime?                 @map("last_login")
+  failedLoginAttempts Int                       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?                 @map("locked_until")
   profile             Profile?
   sessions            Session[]
   roles               UserRole[]
@@ -77,12 +99,14 @@ model User {
   passwordResets      PasswordReset[]
   otpVerifications    OTPVerification[]
   twoFactorAuth       TwoFactorAuth?
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
   properties          Property[]
   bookings            Booking[]
   payments            Payment[]
   reviews             Review[]
+  conversations       ConversationParticipant[]
+  sentMessages        MessageMetadata[]
 
   @@index([email, isActive])
   @@index([username, isActive])
@@ -147,17 +171,34 @@ model TwoFactorAuth {
 // Profile Information (Separate for Security)
 // --------------------------------------------------
 model Profile {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @unique @db.Uuid
-  firstName   String?   @map("first_name") @db.VarChar(50)
-  lastName    String?   @map("last_name") @db.VarChar(50)
-  phone       String?   @db.VarChar(20)
-  avatarUrl   String?   @map("avatar_url") @db.VarChar(255)
-  dateOfBirth DateTime? @map("date_of_birth")
-  user        User      @relation(fields: [userId], references: [id])
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @unique @db.Uuid
+  firstName        String?   @map("first_name") @db.VarChar(50)
+  lastName         String?   @map("last_name") @db.VarChar(50)
+  phone            String?   @db.VarChar(20)
+  avatarUrl        String?   @map("avatar_url") @db.VarChar(255)
+  dateOfBirth      DateTime? @map("date_of_birth")
+  user             User      @relation(fields: [userId], references: [id])
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  gender           Gender    @default(OTHER)
+  emergencyContact String?   @map("emergency_contact") @db.VarChar(100)
+  natonality       String
 
+  // Location
+  currentAddress String? @map("current_address") @db.VarChar(255)
+  city           String? @db.VarChar(50)
+  state          String? @db.VarChar(50)
+  country        String? @db.VarChar(50) // ISO country code
+  postalCode     String? @map("postal_code") @db.VarChar(20)
+  timeZone       String? @map("time_zone") @db.VarChar(50) // e.g., "America/New_York"
+
+  notificationPreferences Json? @map("notification_preferences")
+
+  // Indexes
+  @@index([firstName, lastName])
+  @@index([country, city])
+  @@index([createdAt])
   @@map("profiles")
 }
 
@@ -431,4 +472,49 @@ model Review {
   @@unique([propertyId, tenantId])
   @@index([propertyId, rating])
   @@map("reviews")
+}
+
+// --------------------------------------------------
+// Message Management
+// --------------------------------------------------
+
+model Conversation {
+  id            String    @id @default(uuid())
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastMessageAt DateTime? @map("last_message_at")
+  isGroup       Boolean   @default(false) @map("is_group")
+  title         String?
+
+  // Relationships
+  participants ConversationParticipant[]
+  messages     MessageMetadata[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String       @map("conversation_id")
+  user           User         @relation(fields: [userId], references: [id])
+  userId         String       @map("user_id")
+  joinedAt       DateTime     @default(now()) @map("joined_at")
+
+  @@id([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model MessageMetadata {
+  id             String        @id @default(uuid())
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+  conversationId String        @map("conversation_id")
+  sender         User          @relation(fields: [senderId], references: [id])
+  senderId       String        @map("sender_id")
+  sentAt         DateTime      @default(now()) @map("sent_at")
+  mongoId        String        @map("mongo_id") // Reference to MongoDB document
+  status         MessageStatus @default(SENT)
+
+  // Indexes
+  @@index([conversationId, sentAt])
+  @@index([senderId])
+  @@map("message_metadata")
 }

@@ -1,9 +1,10 @@
 import express from "express";
 import rolePermissionController from "./controller.js";
-import authMiddleware from "../../middlewares/authentication.js";
+import { authenticateUser } from "../../middlewares/authentication.js";
 import validateRequest from "../../middlewares/validate.js";
 
 const router = express.Router();
+router.use(authenticateUser());
 
 /**
  * @route POST /role-permissions/assign
@@ -12,7 +13,7 @@ const router = express.Router();
  */
 router.post(
   "/assign",
-  authMiddleware(["admin"]),
+  // authMiddleware(["admin"]),
   validateRequest("assignPermissionSchema"),
   (req, res, next) => rolePermissionController.assignPermission(req, res, next)
 );
@@ -22,7 +23,7 @@ router.post(
  * @desc Get permissions of a role
  * @access Admin/User
  */
-router.get("/:roleId", authMiddleware(), (req, res, next) =>
+router.get("/:roleId", (req, res, next) =>
   rolePermissionController.getRolePermissions(req, res, next)
 );
 
@@ -33,7 +34,7 @@ router.get("/:roleId", authMiddleware(), (req, res, next) =>
  */
 router.delete(
   "/remove",
-  authMiddleware(["admin"]),
+  // authMiddleware(["admin"]),
   validateRequest("removePermissionSchema"),
   (req, res, next) => rolePermissionController.removePermission(req, res, next)
 );
