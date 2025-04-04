@@ -5,7 +5,10 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  engineType    = "binary"
+  // previewFeatures = `
 }
 
 datasource db {
@@ -183,7 +186,7 @@ model Profile {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   gender           Gender    @default(OTHER)
   emergencyContact String?   @map("emergency_contact") @db.VarChar(100)
-  natonality       String
+  natonality       String?
 
   // Location
   currentAddress String? @map("current_address") @db.VarChar(255)
@@ -496,7 +499,7 @@ model ConversationParticipant {
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   conversationId String       @map("conversation_id")
   user           User         @relation(fields: [userId], references: [id])
-  userId         String       @map("user_id")
+  userId         String       @map("user_id") @db.Uuid  // Fixed mapping
   joinedAt       DateTime     @default(now()) @map("joined_at")
 
   @@id([conversationId, userId])
@@ -504,11 +507,11 @@ model ConversationParticipant {
 }
 
 model MessageMetadata {
-  id             String        @id @default(uuid())
+  id             String        @id @default(uuid()) @db.Uuid
   conversation   Conversation  @relation(fields: [conversationId], references: [id])
   conversationId String        @map("conversation_id")
   sender         User          @relation(fields: [senderId], references: [id])
-  senderId       String        @map("sender_id")
+  senderId       String        @map("sender_id") @db.Uuid  // Ensure this is a UUID
   sentAt         DateTime      @default(now()) @map("sent_at")
   mongoId        String        @map("mongo_id") // Reference to MongoDB document
   status         MessageStatus @default(SENT)
