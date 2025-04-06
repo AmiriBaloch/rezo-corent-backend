@@ -75,7 +75,8 @@ const config = convict({
   googleClientId: {
     doc: "Google Client ID",
     format: String,
-    default: "1073930846177-docvkc3l97sa6didhrrrr7jkr07302vq.apps.googleusercontent.com",
+    default:
+      "1073930846177-docvkc3l97sa6didhrrrr7jkr07302vq.apps.googleusercontent.com",
     env: "GOOGLE_CLIENT_ID",
   },
   googleClientSecret: {
@@ -134,13 +135,13 @@ const config = convict({
     ],
   },
   mongodb: {
-    doc: 'MongoDB connection URL',
+    doc: "MongoDB connection URL",
     format: String,
-    default: 'mongodb://localhost:27017/corent',
-    env: 'MONGODB_URL'
+    default: "mongodb://mongoadmin:MongoDBAdmin@147.93.84.104:27017/",
+    env: "MONGODB_URI",
   },
   sessionSecrate: {
-    default:"your_session_secret",
+    default: "your_session_secret",
     doc: "Session secret key",
     format: String,
     env: "SESSION_SECRET",
