@@ -12,6 +12,8 @@ import {
 import { geoJSON } from "../../utils/geospatial.js";
 import redis from "../../config/redis.js";
 import { Prisma } from "@prisma/client";
+import { validate as isValidUUID } from "uuid";
+import PropertySearch from "../../models/PropertyDetails.js";
 
 export class PropertyService {
   /**
@@ -52,7 +54,9 @@ export class PropertyService {
   static async getProperty(propertyId) {
     const CACHE_TTL = 3600; // 1 hour in seconds
     const cacheKey = `property:${propertyId}`;
-
+    if (!isValidUUID(propertyId)) {
+      throw new Error(`Invalid property ID format: ${propertyId}`);
+    }
     try {
       // 1. Check cache first
       const cachedData = await redis.get(cacheKey);
@@ -497,8 +501,6 @@ export class PropertyService {
   static async updateProperty(propertyId, ownerId, updateData) {
     const CACHE_TTL = 3600; // 1 hour
     try {
-      
-
       // Verify property ownership first
       const existingProperty = await prisma.property.findUnique({
         where: { id: propertyId },
@@ -634,4 +636,355 @@ export class PropertyService {
       });
     }
   }
+
+  /**
+   * Full-text search properties with filters
+   * @param {Object} params - Search parameters
+   * @param {string} params.query - Search query string
+   * @param {number} params.latitude - Location latitude
+   * @param {number} params.longitude - Location longitude
+   * @param {number} params.radius - Search radius in meters
+   * @param {number} params.minPrice - Minimum price filter
+   * @param {number} params.maxPrice - Maximum price filter
+   * @param {number} params.minBedrooms - Minimum bedrooms
+   * @param {string[]} params.amenities - Required amenities
+   * @param {string} params.propertyType - Property type filter
+   * @param {number} params.page - Pagination page
+   * @param {number} params.limit - Results per page
+   * @returns {Promise<Object>} Search results
+   */
+  static async searchProperties({
+    query,
+    latitude,
+    longitude,
+    radius = 5000,
+    minPrice,
+    maxPrice,
+    minBedrooms,
+    amenities = [],
+    propertyType,
+    page = 1,
+    limit = 20,
+  }) {
+    try {
+      // Build the MongoDB search query
+      const mongoQuery = {};
+      const prismaWhere = {};
+
+      // Text search
+      if (query) {
+        mongoQuery.$text = { $search: query };
+      }
+
+      // Location-based search
+      if (latitude && longitude) {
+        mongoQuery.location = {
+          $near: {
+            $geometry: {
+              type: "Point",
+              coordinates: [longitude, latitude],
+            },
+            $maxDistance: radius,
+          },
+        };
+
+        // Add to Prisma where for additional filtering
+        prismaWhere.location = {
+          path: ["lat", "lng"],
+          equals: [latitude, longitude],
+        };
+      }
+
+      // Price range filter
+      if (minPrice || maxPrice) {
+        prismaWhere.basePrice = {};
+        if (minPrice) prismaWhere.basePrice.gte = new Prisma.Decimal(minPrice);
+        if (maxPrice) prismaWhere.basePrice.lte = new Prisma.Decimal(maxPrice);
+      }
+
+      // Bedrooms filter
+      if (minBedrooms) {
+        prismaWhere.roomSpecs = {
+          some: {
+            type: "BEDROOM",
+            count: { gte: minBedrooms },
+          },
+        };
+      }
+
+      // Amenities filter
+      if (amenities.length > 0) {
+        prismaWhere.amenities = {
+          some: {
+            name: { in: amenities },
+          },
+        };
+      }
+
+      // Property type filter
+      if (propertyType) {
+        prismaWhere.roomSpecs = {
+          some: {
+            type: propertyType,
+          },
+        };
+      }
+      this.syncAllApprovedProperties()
+      // First search in MongoDB for performance
+      const mongoResults = await PropertySearch.find(mongoQuery)
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean();
+
+      // Then get full details from Prisma
+      const propertyIds = mongoResults.map((p) => p.propertyId);
+      const prismaResults = await prisma.property.findMany({
+        where: {
+          ...prismaWhere,
+          id: { in: propertyIds },
+          status: "APPROVED", // Only show approved properties
+        },
+        include: {
+          roomSpecs: true,
+          amenities: true,
+          reviews: {
+            select: {
+              rating: true,
+            },
+          },
+          _count: {
+            select: {
+              bookings: true,
+              reviews: true,
+            },
+          },
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+      });
+
+      // Calculate average ratings
+      const resultsWithStats = prismaResults.map((property) => {
+        const avgRating =
+          property.reviews.reduce((sum, review) => sum + review.rating, 0) /
+          (property.reviews.length || 1);
+
+        return {
+          ...property,
+          quickStats: {
+            rating: avgRating,
+            reviewCount: property._count.reviews,
+            bookedCount: property._count.bookings,
+          },
+        };
+      });
+
+      // Get total count for pagination
+      const totalCount = await PropertySearch.countDocuments(mongoQuery);
+
+      return {
+        data: resultsWithStats,
+        pagination: {
+          total: totalCount,
+          page,
+          limit,
+          totalPages: Math.ceil(totalCount / limit),
+        },
+      };
+    } catch (error) {
+      console.error("Property search failed:", error);
+      throw new Error("Failed to search properties");
+    }
+  }
+
+   /**
+   * Update property status and handle search indexing
+   * @param {string} propertyId 
+   * @param {string} status 
+   * @returns {Promise<Property>}
+   */
+   static async updatePropertyStatus(propertyId, status) {
+    const property = await prisma.property.update({
+      where: { id: propertyId },
+      data: { status },
+      include: {
+        roomSpecs: true,
+        amenities: true
+      }
+    });
+
+    // Automatically index when status changes to APPROVED
+    if (status === 'APPROVED') {
+      await this.indexProperty(propertyId);
+    } else if (status !== 'APPROVED') {
+      // Remove from search index if status changes from APPROVED
+      await PropertySearch.deleteOne({ propertyId });
+    }
+
+    return property;
+  }
+
+  /**
+   * Index a property in the search database with enhanced data
+   * @param {string} propertyId - Property ID to index
+   */
+  static async indexProperty(propertyId) {
+    try {
+      const property = await prisma.property.findUnique({
+        where: { id: propertyId },
+        include: {
+          roomSpecs: true,
+          amenities: true,
+          reviews: { select: { rating: true } },
+          _count: { select: { bookings: true } }
+        }
+      });
+
+      if (!property) throw new Error("Property not found");
+      if (property.status !== 'APPROVED') {
+        throw new Error("Only APPROVED properties can be indexed");
+      }
+
+      // Calculate statistics
+      const avgRating = property.reviews.length 
+        ? property.reviews.reduce((sum, r) => sum + r.rating, 0) / property.reviews.length
+        : 0;
+
+      // Prepare comprehensive search document
+      const searchDoc = {
+        propertyId: property.id,
+        title: property.title,
+        description: property.description,
+        basePrice: property.basePrice,
+        currency: property.currency,
+        location: {
+          type: "Point",
+          coordinates: property.location.coordinates || 
+            [property.location.lng, property.location.lat]
+        },
+        address: property.address,
+        maxGuests: property.maxGuests,
+        amenities: property.amenities.map(a => a.name),
+        propertyType: property.roomSpecs.find(r => r.type !== 'BEDROOM')?.type,
+        bedrooms: property.roomSpecs.find(r => r.type === 'BEDROOM')?.count || 0,
+        photos: property.photos,
+        stats: {
+          rating: avgRating,
+          reviewCount: property.reviews.length,
+          bookedCount: property._count.bookings
+        },
+        createdAt: property.createdAt,
+        updatedAt: new Date()
+      };
+
+      // Upsert with atomic operation
+      await PropertySearch.updateOne(
+        { propertyId },
+        { $set: searchDoc },
+        { upsert: true }
+      );
+
+      return searchDoc;
+    } catch (error) {
+      console.error("Indexing failed:", error);
+      throw new Error(`Indexing failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get property suggestions based on search history
+   * @param {string[]} searchHistory - Array of previous search terms
+   * @param {number} limit - Number of suggestions to return
+   */
+  static async getSearchSuggestions(searchHistory, limit = 5) {
+    try {
+      const suggestions = await PropertySearch.aggregate([
+        {
+          $match: {
+            $text: { $search: searchHistory.join(" ") },
+          },
+        },
+        {
+          $project: {
+            title: 1,
+            score: { $meta: "textScore" },
+          },
+        },
+        { $sort: { score: -1 } },
+        { $limit: limit },
+      ]);
+
+      return suggestions.map((s) => s.title);
+    } catch (error) {
+      console.error("Failed to get search suggestions:", error);
+      return [];
+    }
+  }
+
+  static async listofPENDINGProperties({ page = 1, limit = 10 }) {
+    const CACHE_TTL = 300; // 5 minutes
+    const cacheKey = `pending_properties:page_${page}_limit_${limit}`;
+
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+
+      const [properties, total] = await prisma.$transaction([
+        prisma.property.findMany({
+          where: { status: "PENDING" },
+          include: {
+            amenities: { select: { id: true, name: true } },
+            roomSpecs: { select: { type: true, count: true } },
+          },
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.property.count({ where: { status: "PENDING" } }),
+      ]);
+
+      const result = {
+        data: properties,
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+
+      redis.setex(cacheKey, CACHE_TTL, JSON.stringify(result));
+      return result;
+    } catch (error) {
+      this.handleDatabaseError(error, "Failed to list pending properties");
+    }
+  }
+
+  static async syncAllApprovedProperties() {
+    try {
+      const approvedProperties = await prisma.property.findMany({
+        where: { status: 'APPROVED' },
+        select: { id: true }
+      });
+
+      const results = await Promise.allSettled(
+        approvedProperties.map(p => 
+          PropertyService.indexProperty(p.id)
+        )
+      );
+
+      const successful = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      console.log(`Search index sync complete. 
+        Successful: ${successful}, Failed: ${failed}`);
+
+      return { successful, failed };
+    } catch (error) {
+      console.error("Bulk sync failed:", error);
+      throw error;
+    }
+  }
+
+
 }

@@ -215,7 +215,13 @@ export const authorizeAccess = (resourcePattern, action, options = {}) => {
       }
 
       // 6. Audit logging
-      await createAuditLog(req, user, resolvedResource, resolvedAction);
+      await createAuditLog(
+        req,
+        user,
+        resolvedResource,
+        resolvedAction,
+        user.id
+      );
 
       next();
     } catch (error) {
@@ -331,28 +337,38 @@ async function verifyOwnership(resource, req, user) {
   }
 }
 
-async function createAuditLog(req, user, resource, action) {
+async function createAuditLog(req, user, resource, action, entityId, oldValues = null, newValues = null) {
+
   try {
-    await prisma.auditLog.create({
-      data: {
-        actionType: action.toUpperCase(),
-        entityType: resource.split("/")[0].toUpperCase(),
-        entityId: isUUID(req.params.id) ? req.params.id : null,
-        user: { connect: { id: user.id } },
-        ipAddress: req.ip,
-        userAgent: req.headers["user-agent"] || null,
-        metadata: {
-          method: req.method,
-          path: req.path,
-          params: req.params,
-          query: req.query,
-          resource,
-          action,
-        },
+    const data = {
+      actionType: action.toUpperCase(),
+      entityType: resource.split("/")[0].toUpperCase(),
+      userId: user.id, // Use userId instead of user.connect
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"] || null,
+      // Store metadata in newValues if needed
+      newValues: {
+        method: req.method,
+        path: req.path,
+        params: req.params,
+        query: req.query,
+        resource,
+        action,
       },
-    });
+      oldValues: oldValues,
+      // createdAt is automatically set by the schema default
+    };
+
+    // Only add entityId if provided
+    if (entityId) {
+      data.entityId = entityId;
+    }
+
+    await prisma.auditLog.create({ data });
   } catch (error) {
     logger.error("Failed to create audit log:", error);
+    // Consider re-throwing the error if you want calling code to handle it
+    throw error;
   }
 }
 

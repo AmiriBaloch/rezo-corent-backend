@@ -9,8 +9,7 @@ import prisma from "../../config/database.js";
 
 const router = Router();
 // Public routes
-router.get("/:id", PropertyController.getProperty);
-router.get("/", PropertyController.listApprovedProperties);
+
 // Owner access own properties
 router.get(
   "/owners-properties/:ownerId",
@@ -110,17 +109,131 @@ router.patch(
   PropertyController.updateAvailability
 );
 
-// router.get(
-//   "/search",
-//   (req, res, next) => {
-//     // Basic validation middleware
-//     if (!req.query.lat || !req.query.lng) {
-//       return res.status(400).json({ error: "Missing coordinates" });
-//     }
-//     next();
-//   },
-//   PropertyController.searchProperties
-// ); // Serach is not working
+/**
+ * @swagger
+ * /api/properties/search:
+ *   get:
+ *     summary: Search properties
+ *     tags: [Properties]
+ *     parameters:
+ *       - in: query
+ *         name: query
+ *         schema:
+ *           type: string
+ *         description: Search query text
+ *       - in: query
+ *         name: latitude
+ *         schema:
+ *           type: number
+ *         description: Latitude for location-based search
+ *       - in: query
+ *         name: longitude
+ *         schema:
+ *           type: number
+ *         description: Longitude for location-based search
+ *       - in: query
+ *         name: radius
+ *         schema:
+ *           type: number
+ *           default: 5000
+ *         description: Search radius in meters
+ *       - in: query
+ *         name: minPrice
+ *         schema:
+ *           type: number
+ *         description: Minimum price filter
+ *       - in: query
+ *         name: maxPrice
+ *         schema:
+ *           type: number
+ *         description: Maximum price filter
+ *       - in: query
+ *         name: minBedrooms
+ *         schema:
+ *           type: integer
+ *         description: Minimum number of bedrooms
+ *       - in: query
+ *         name: amenities
+ *         schema:
+ *           type: array
+ *           items:
+ *             type: string
+ *         description: Required amenities
+ *       - in: query
+ *         name: propertyType
+ *         schema:
+ *           type: string
+ *         description: Property type filter
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Results per page
+ *     responses:
+ *       200:
+ *         description: Successful search
+ *       400:
+ *         description: Invalid parameters
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  "/search",
+  // validateSearchParams,
+  PropertyController.searchProperties
+);
+
+/**
+ * @swagger
+ * /api/properties/suggestions:
+ *   get:
+ *     summary: Get search suggestions
+ *     tags: [Properties]
+ *     parameters:
+ *       - in: query
+ *         name: terms
+ *         schema:
+ *           type: string
+ *         description: Comma-separated search terms
+ *     responses:
+ *       200:
+ *         description: Successful operation
+ *       400:
+ *         description: Missing search terms
+ *       500:
+ *         description: Server error
+ */
+router.get("/suggestions", PropertyController.getSearchSuggestions);
+
+/**
+ * @swagger
+ * /api/properties/reindex/{propertyId}:
+ *   post:
+ *     summary: Reindex a property
+ *     tags: [Properties]
+ *     parameters:
+ *       - in: path
+ *         name: propertyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the property to reindex
+ *     responses:
+ *       200:
+ *         description: Successfully reindexed
+ *       400:
+ *         description: Missing property ID
+ *       500:
+ *         description: Server error
+ */
+router.post("/reindex/:propertyId", PropertyController.reindexProperty);
 
 // Admin routes
 
@@ -128,31 +241,16 @@ router.patch(
   "/:id/status",
   authenticateUser(),
   authorizeAccess("properties", "manage"),
-  async (req, res) => {
-    try {
-      const { status } = req.body;
-      const propertyId = req.params.id;
-      // Check if property exists before updating
-      const existingProperty = await prisma.property.findUnique({
-        where: { id: propertyId },
-      });
-      if (!existingProperty) {
-        return res.status(404).json({ error: "Property not found" });
-      }
-
-      const property = await prisma.property.update({
-        where: { id: propertyId },
-        data: { status },
-      });
-
-      res.json(property);
-    } catch (error) {
-      console.error("Update Error:", error);
-      res
-        .status(400)
-        .json({ error: "Status update failed", details: error.message });
-    }
-  }
+  // validateStatusUpdate, // Add Joi validation if needed
+  PropertyController.updatePropertyStatus
 );
 
+router.get(
+  "/pending/",
+  authenticateUser(),
+  authorizeAccess("properties", "manage"),
+  PropertyController.getlistPENDINGProperties
+);
+router.get("/:id", PropertyController.getProperty);
+router.get("/", PropertyController.listApprovedProperties);
 export default router;

@@ -1,6 +1,13 @@
 // properties/controller.js
 import { PropertyService } from "./service.js";
-import { propertySchema, validateWithJoi } from "./schema.js";
+import {
+  propertySchema,
+  validateWithJoi,
+  searchParamsSchema,
+  suggestionsSchema,
+  reindexSchema,
+} from "./schema.js";
+
 import {
   ApiError,
   AuthError as AuthorizationError,
@@ -179,9 +186,12 @@ export class PropertyController {
       // const data = PropertySchema.partial().parse();
       console.log(
         "Checking the request ===========> \n",
-        "User info ====>",req.user,
-        "Request  body ====>",req.body,
-        "Request  params ====>",req.params,
+        "User info ====>",
+        req.user,
+        "Request  body ====>",
+        req.body,
+        "Request  params ====>",
+        req.params,
         "\n =========================="
       );
       const data = req.body;
@@ -283,41 +293,183 @@ export class PropertyController {
     }
   }
 
-  // static async searchProperties(req, res) {
-  //   try {
-  //     const lat = parseFloat(req.query.lat);
-  //     const lng = parseFloat(req.query.lng);
-  //     const radius = parseInt(req.query.radius) || 5000;
-  //     const ownerId = req.query.ownerId;
+  static async searchProperties(req, res) {
+    try {
+      // Validate request parameters
+      const { error, value } = searchParamsSchema.validate(req.query, {
+        abortEarly: false,
+        allowUnknown: false,
+        convert: true,
+      });
 
-  //     if (isNaN(lat) || isNaN(lng)) {
-  //       return res.status(400).json({ error: "Invalid coordinates" });
-  //     }
+      if (error) {
+        return res.status(400).json({
+          status: "error",
+          message: "Validation failed",
+          errors: error.details.map((detail) => ({
+            field: detail.path.join("."),
+            message: detail.message,
+          })),
+        });
+      }
 
-  //     if (ownerId && !isUUID(ownerId)) {
-  //       return res
-  //         .status(400)
-  //         .json({ error: "Invalid UUID format for ownerId" });
-  //     }
+      // Normalize amenities to array
+      const normalizedParams = {
+        ...value,
+        amenities: value.amenities
+          ? Array.isArray(value.amenities)
+            ? value.amenities
+            : [value.amenities]
+          : [],
+      };
 
-  //     const results = await PropertyService.searchProperties({
-  //       ...req.query,
-  //       lat,
-  //       lng,
-  //       radius,
-  //       ownerId,
-  //     });
+      // Perform search
+      const results = await PropertyService.searchProperties(normalizedParams);
 
-  //     res.json({
-  //       count: results.length,
-  //       results,
-  //     });
-  //   } catch (error) {
-  //     console.error("Search error:", error);
-  //     res.status(500).json({
-  //       error: "Search failed",
-  //       details: error.message,
-  //     });
-  //   }
-  // }
+      res.json({
+        status: "success",
+        data: results.data,
+        pagination: results.pagination,
+      });
+    } catch (error) {
+      console.error("Property search failed:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to search properties",
+      });
+    }
+  }
+
+  /**
+   * Get search suggestions
+   * @param {Object} req - Express request
+   * @param {Object} res - Express response
+   */
+  static async getSearchSuggestions(req, res) {
+    try {
+      // Validate request parameters
+      const { error, value } = suggestionsSchema.validate(req.query);
+
+      if (error) {
+        return res.status(400).json({
+          status: "error",
+          message: error.details[0].message,
+        });
+      }
+
+      const searchHistory = value.terms.split(",").map((term) => term.trim());
+      const suggestions = await PropertyService.getSearchSuggestions(
+        searchHistory
+      );
+
+      res.json({
+        status: "success",
+        data: suggestions,
+      });
+    } catch (error) {
+      console.error("Failed to get search suggestions:", error);
+      res.status(500).json({
+        status: "error",
+        message: "Failed to get search suggestions",
+      });
+    }
+  }
+
+  /**
+   * Reindex a property in search database
+   * @param {Object} req - Express request
+   * @param {Object} res - Express response
+   */
+  static async reindexProperty(req, res) {
+    try {
+      // Validate request parameters
+      const { error, value } = reindexSchema.validate({
+        propertyId: req.params.propertyId,
+      });
+
+      if (error) {
+        return res.status(400).json({
+          status: "error",
+          message: error.details[0].message,
+        });
+      }
+
+      await PropertyService.indexProperty(value.propertyId);
+
+      res.json({
+        status: "success",
+        message: "Property reindexed successfully",
+      });
+    } catch (error) {
+      console.error("Failed to reindex property:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to reindex property",
+      });
+    }
+  }
+
+  static async getlistPENDINGProperties(req, res) {
+    try {
+      const { page = 1, limit = 10 } = await Joi.object({
+        page: Joi.number().min(1).default(1),
+        limit: Joi.number().min(1).max(100).default(10),
+      }).validateAsync(req.query);
+
+      const result = await PropertyService.listofPENDINGProperties({
+        page,
+        limit,
+      });
+
+      res.header("Cache-Control", "public, max-age=300").json(result);
+    } catch (error) {
+      res.status(error.statusCode || 500).json({
+        error: error.message || "Failed to fetch properties",
+      });
+    }
+  }
+
+  // Property Controller
+  static async updatePropertyStatus(req, res) {
+    try {
+      const { status } = req.body;
+      const propertyId = req.params.id;
+
+      // Validate status input  PENDING
+
+      const validStatuses = ["PENDING", "APPROVED", "REJECTED", "ARCHIVED"];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: "Invalid status value" });
+      }
+
+      // Check property exists
+      const existing = await prisma.property.findUnique({
+        where: { id: propertyId },
+      });
+      if (!existing) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      // Update status and handle indexing
+      const property = await PropertyService.updatePropertyStatus(
+        propertyId,
+        status
+      );
+
+      res.json({
+        status: "success",
+        data: property,
+        message:
+          status === "APPROVED"
+            ? "Property approved and indexed"
+            : "Status updated",
+      });
+    } catch (error) {
+      console.error("Update Error:", error);
+      res.status(500).json({
+        error: "Status update failed",
+        details: error.message,
+      });
+    }
+  }
 }
