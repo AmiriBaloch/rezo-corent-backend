@@ -1,4 +1,4 @@
-import { ProfileService } from './service.js';
+import { ProfileService } from "./service.js";
 
 export const profileController = {
   /**
@@ -8,25 +8,29 @@ export const profileController = {
    */
   async getProfile(req, res) {
     try {
-      const profile = await ProfileService.getProfile(req.user.userId);
-      
-      if (!profile) {
-        return res.status(404).json({
-          status: 'error',
-          message: 'Profile not found'
+      const result = await ProfileService.getProfile(req.user.id);
+
+      if (result.profileExists === false) {
+        return res.status(200).json({
+          status: "success",
+          message: result.message,
+          data: {
+            user: result.user,
+            profile: null,
+            requiredFields: result.requiredFields,
+          },
         });
       }
 
       res.json({
-        status: 'success',
-        data: profile
+        status: "success",
+        data: result,
       });
-
     } catch (error) {
-      console.error('Failed to fetch profile:', error);
+      console.error("Failed to fetch profile:", error);
       res.status(500).json({
-        status: 'error',
-        message: 'Failed to retrieve profile'
+        status: "error",
+        message: error.message || "Failed to retrieve profile",
       });
     }
   },
@@ -39,22 +43,21 @@ export const profileController = {
   async upsertProfile(req, res) {
     try {
       const profile = await ProfileService.upsertProfile({
-        userId: req.user.userId,
-        profileData: req.body
+        userId: req.user.id,
+        profileData: req.body,
       });
 
       res.status(201).json({
-        status: 'success',
-        data: profile
+        status: "success",
+        data: profile,
       });
-
     } catch (error) {
-      console.error('Profile update failed:', error);
-      
-      const status = error.message.startsWith('Validation error') ? 400 : 500;
+      console.error("Profile update failed:", error);
+
+      const status = error.message.startsWith("Validation error") ? 400 : 500;
       res.status(status).json({
-        status: 'error',
-        message: error.message || 'Failed to update profile'
+        status: "error",
+        message: error.message || "Failed to update profile",
       });
     }
   },
@@ -67,22 +70,21 @@ export const profileController = {
   async partialUpdate(req, res) {
     try {
       const updatedProfile = await ProfileService.partialUpdate(
-        req.user.userId,
+        req.user.id,
         req.body
       );
 
       res.json({
-        status: 'success',
-        data: updatedProfile
+        status: "success",
+        data: updatedProfile,
       });
-
     } catch (error) {
-      console.error('Partial update failed:', error);
-      
-      const status = error.message.startsWith('Validation error') ? 400 : 500;
+      console.error("Partial update failed:", error);
+
+      const status = error.message.startsWith("Validation error") ? 400 : 500;
       res.status(status).json({
-        status: 'error',
-        message: error.message || 'Failed to update profile'
+        status: "error",
+        message: error.message || "Failed to update profile",
       });
     }
   },
@@ -96,26 +98,25 @@ export const profileController = {
     try {
       if (!req.file) {
         return res.status(400).json({
-          status: 'error',
-          message: 'No image file provided'
+          status: "error",
+          message: "No image file provided",
         });
       }
 
       const updatedProfile = await ProfileService.updateProfilePicture({
-        userId: req.user.userId,
-        imageBuffer: req.file.buffer
+        userId: req.user.id,
+        imageBuffer: req.file.buffer,
       });
 
       res.json({
-        status: 'success',
-        data: updatedProfile
+        status: "success",
+        data: updatedProfile,
       });
-
     } catch (error) {
-      console.error('Profile picture update failed:', error);
+      console.error("Profile picture update failed:", error);
       res.status(500).json({
-        status: 'error',
-        message: 'Failed to update profile picture'
+        status: "error",
+        message: "Failed to update profile picture",
       });
     }
   },
@@ -127,21 +128,22 @@ export const profileController = {
    */
   async updateNotificationPreferences(req, res) {
     try {
-      const updatedProfile = await ProfileService.updateNotificationPreferences({
-        userId: req.user.userId,
-        preferences: req.body
-      });
+      const updatedProfile = await ProfileService.updateNotificationPreferences(
+        {
+          userId: req.user.id,
+          preferences: req.body,
+        }
+      );
 
       res.json({
-        status: 'success',
-        data: updatedProfile
+        status: "success",
+        data: updatedProfile,
       });
-
     } catch (error) {
-      console.error('Notification preferences update failed:', error);
+      console.error("Notification preferences update failed:", error);
       res.status(500).json({
-        status: 'error',
-        message: 'Failed to update notification preferences'
+        status: "error",
+        message: "Failed to update notification preferences",
       });
     }
   },
@@ -161,20 +163,19 @@ export const profileController = {
       );
 
       res.json({
-        status: 'success',
+        status: "success",
         data: profiles,
         pagination: {
           limit: parseInt(limit),
           offset: parseInt(offset),
-          total: profiles.length
-        }
+          total: profiles.length,
+        },
       });
-
     } catch (error) {
-      console.error('Profile search failed:', error);
+      console.error("Profile search failed:", error);
       res.status(500).json({
-        status: 'error',
-        message: 'Failed to search profiles'
+        status: "error",
+        message: "Failed to search profiles",
       });
     }
   },
@@ -186,15 +187,14 @@ export const profileController = {
    */
   async deleteProfile(req, res) {
     try {
-      await ProfileService.deleteProfile(req.user.userId);
+      await ProfileService.deleteProfile(req.user.id);
       res.status(204).end();
-
     } catch (error) {
-      console.error('Profile deletion failed:', error);
+      console.error("Profile deletion failed:", error);
       res.status(500).json({
-        status: 'error',
-        message: 'Failed to delete profile'
+        status: "error",
+        message: "Failed to delete profile",
       });
     }
-  }
+  },
 };

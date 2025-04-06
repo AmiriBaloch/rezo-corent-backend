@@ -61,19 +61,62 @@ export class ProfileService {
    * @param {string} userId
    * @returns {Promise<Object|null>} Profile data
    */
+
   static async getProfile(userId) {
-    return prisma.profile.findUnique({
-      where: { userId },
-      include: {
-        user: {
-          select: {
-            email: true,
-            username: true,
-            status: true,
-          },
+    // Validate userId input
+    if (!userId || typeof userId !== "string") {
+      throw new Error("Invalid userId: must be a non-empty string");
+    }
+
+    try {
+      // First check if user exists
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          isActive: true,
+          isVerified: true,
         },
-      },
-    });
+      });
+
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      // Then check for profile
+      const profile = await prisma.profile.findUnique({
+        where: { userId },
+      });
+
+      if (!profile) {
+        // Return a special response indicating profile needs completion
+        return {
+          user,
+          profileExists: false,
+          message: "Please complete your profile",
+          requiredFields: ["firstName", "lastName"], // Add other required fields
+        };
+      }
+
+      // Return the full profile if it exists
+      return {
+        ...profile,
+        user,
+        profileExists: true,
+      };
+    } catch (error) {
+      // Enhanced error handling
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        console.error("Prisma error:", error.message);
+        throw new Error(
+          `Database error: ${error.meta?.message || error.message}`
+        );
+      }
+      console.error("Error in getProfile:", error);
+      throw error;
+    }
   }
 
   /**
