@@ -66,13 +66,14 @@ app.use(
 // ========================
 // CORS Configuration
 // ========================
-app.use(
-  cors({
-    origin: "*", // Update for production security
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    credentials: true,
-  })
-);
+// temprarily disabled for local development 
+// app.use(
+//   cors({
+//     origin: "*", // Update for production security
+//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+//     credentials: true,
+//   })
+// );
 
 //
 //=====================================
