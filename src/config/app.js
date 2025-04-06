@@ -15,19 +15,17 @@ import { swaggerDocs } from "./swagger.js";
 import { initializeCasbin } from "../config/casbin.js";
 import { connectMongoDB, disconnectMongoDB } from "./mongodb.js";
 import mongoose from "mongoose";
-import { setupWebSocket, getIO } from '../websocket/index.js';
-import { createServer } from 'http';
+import { setupWebSocket, getIO } from "../websocket/index.js";
+import { createServer } from "http";
+import session from "express-session";
+import config from "./env.js";
 
 const app = express();
 const server = createServer(app);
 
-
-
 // ========================
 // Security Middleware
 // ========================
-initializePassport(passport);
-app.use(passport.initialize());
 
 app.use(
   helmet({
@@ -44,6 +42,28 @@ app.use(
 );
 
 // ========================
+// Session Middleware
+// =========================
+app.use(
+  session({
+    secret:
+      config.get("sessionSecrate") || crypto.randomBytes(64).toString("hex"),
+    resave: false,
+    saveUninitialized: false, // Changed for GDPR compliance
+    store:
+      config.get("env") === "production"
+        ? new RedisStore({ client: redisClient })
+        : null,
+    cookie: {
+      secure: false, 
+      secure: config.get("env") === "production",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000,
+    },
+  })
+);
+// ========================
 // CORS Configuration
 // ========================
 app.use(
@@ -59,6 +79,12 @@ app.use(
 // Initialize Casbin on startup
 //======================================
 initializeCasbin();
+// ========================
+// Passport Middleware
+// ========================
+initializePassport(passport);
+app.use(passport.initialize());
+app.use(passport.session());
 // Setup WebSocket
 setupWebSocket(server);
 // ========================
@@ -154,8 +180,6 @@ app.get("/", async (req, res) => {
 // Application Routes
 // ========================
 app.use("/api", routes);
-
-
 
 // ========================
 // Error Handling

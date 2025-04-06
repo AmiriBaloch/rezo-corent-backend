@@ -2,8 +2,8 @@ import { Strategy as JwtStrategy, ExtractJwt } from "passport-jwt";
 import { PrismaClient } from "@prisma/client";
 import config from "./env.js";
 import GoogleStrategy from "passport-google-oauth20";
-import crypto from "crypto";
 import logger from "../config/logger.js";
+import { v4 as uuidv4 } from "uuid";
 
 const prisma = new PrismaClient();
 
@@ -67,62 +67,87 @@ export default (passport) => {
     })
   );
 
-  // Google OAuth Strategy with state validation
+  // Enhanced Google OAuth Strategy with robust error handling
+
   passport.use(
     new GoogleStrategy(
       {
         clientID: config.get("googleClientId"),
         clientSecret: config.get("googleClientSecret"),
-        callbackURL: config.get("googleCallbackURL"),
+        callbackURL: "http://localhost:3000/api/auth/google/callback",
         passReqToCallback: true,
-        state: true,
+        scope: ["profile", "email"],
       },
       async (req, accessToken, refreshToken, profile, done) => {
         try {
-          // Validate state parameter
-          if (req.query.state !== req.session.state) {
-            throw new Error("Invalid state parameter");
-          }
-
-          // Validate email presence
-          if (!profile.emails?.length) {
-            throw new Error("No email associated with Google account");
+          // Validate required profile data
+          if (!profile.emails?.[0]?.value) {
+            throw new Error("No email in Google profile");
           }
 
           const email = profile.emails[0].value;
-          const existingUser = await prisma.user.findUnique({
+          const googleId = profile.id;
+
+          // Check for existing user
+          let user = await prisma.user.findUnique({
             where: { email },
-            include: { roles: true },
+            include: {
+              roles: {
+                include: {
+                  role: true,
+                },
+              },
+            },
           });
 
-          // Handle existing user
-          if (existingUser) {
-            if (!existingUser.isActive) {
-              throw new Error("Account deactivated");
+          if (user) {
+            // Update existing user with Google ID if missing
+            if (!user.googleId) {
+              user = await prisma.user.update({
+                where: { id: user.id },
+                data: { googleId },
+                include: {
+                  roles: {
+                    include: {
+                      role: true,
+                    },
+                  },
+                },
+              });
             }
 
-            await createAuditLog(
-              existingUser.id,
-              "LOGIN",
-              req.ip,
-              req.headers["user-agent"]
-            );
+            // Check if user has at least one role
+            if (user.roles.length === 0) {
+              await assignDefaultRole(user.id);
+            }
 
-            return done(null, existingUser);
+            return done(null, user);
+          }
+
+          // Create new user
+          const defaultRole = await prisma.role.findFirst({
+            where: { isDefault: true },
+          });
+
+          if (!defaultRole) {
+            throw new Error("Default role not found in database");
           }
 
           // Generate unique username
           const baseUsername = email.split("@")[0];
           const uniqueUsername = await generateUniqueUsername(baseUsername);
 
-          // Create new user
-          const newUser = await prisma.user.create({
+          // Create system user ID for assignment
+          const systemUserId =
+            "00000000-0000-0000-0000-000000000000" || uuidv4();
+
+          user = await prisma.user.create({
             data: {
               email,
+              googleId,
               username: uniqueUsername,
               isVerified: true,
               isActive: true,
-              passwordHash: null,
               profile: {
                 create: {
                   firstName: profile.name?.givenName || "",
@@ -130,68 +155,122 @@ export default (passport) => {
                   avatarUrl: profile.photos?.[0]?.value || "",
                 },
               },
-              sessions: {
+              roles: {
                 create: {
-                  sessionToken: crypto.randomBytes(32).toString("hex"),
-                  refreshToken: crypto.randomBytes(32).toString("hex"),
-                  deviceInfo: req.headers["user-agent"],
-                  ipAddress: req.ip,
-                  expiresAt: new Date(Date.now() + 3600 * 1000), // 1 hour
+                  roleId: defaultRole.id,
+                  assignedBy: systemUserId, // Using a valid UUID
                 },
               },
             },
             include: {
-              roles: true,
-              sessions: true,
+              roles: {
+                include: {
+                  role: true,
+                },
+              },
             },
           });
 
+          // Create audit log
           await createAuditLog(
-            newUser.id,
+            user.id,
             "REGISTER",
             req.ip,
             req.headers["user-agent"]
           );
 
-          logger.info(`New user registered via Google: ${newUser.email}`);
-          return done(null, newUser);
+          return done(null, user, user.id);
         } catch (error) {
-          logger.error(`Google OAuth Error: ${error.message}`);
-          return done(error, false);
+          console.error("Google OAuth error:", error);
+          return done(error, null);
         }
       }
     )
   );
 
-  // Session serialization
-  passport.serializeUser((user, done) => {
-    done(null, {
-      id: user.id,
-      sessionId: user.sessions[0]?.id, // Track specific session
+  // Helper function to assign default role
+  async function assignDefaultRole(userId) {
+    const defaultRole = await prisma.role.findFirst({
+      where: { isDefault: true },
     });
+
+    if (!defaultRole) {
+      throw new Error("Default role not found");
+    }
+
+    // Create system user ID for assignment
+    const systemUserId = uuidv4();
+
+    await prisma.userRole.create({
+      data: {
+        userId,
+        roleId: defaultRole.id,
+        assignedBy: systemUserId,
+      },
+    });
+  }
+
+  // Helper function to generate unique username
+  async function generateUniqueUsername(baseUsername) {
+    let username = baseUsername;
+    let counter = 1;
+
+    while (true) {
+      const existingUser = await prisma.user.findUnique({
+        where: { username },
+      });
+
+      if (!existingUser) {
+        return username;
+      }
+
+      username = `${baseUsername}${counter}`;
+      counter++;
+    }
+  }
+
+  passport.serializeUser((user, done) => {
+    try {
+      if (!user || !user.id) {
+        throw new Error("Invalid user object in serialization");
+      }
+
+      const serializedUser = {
+        id: user.id,
+        // Safely access nested session ID
+        sessionId: user.sessions?.[0]?.id || null,
+      };
+
+      done(null, serializedUser);
+    } catch (error) {
+      console.error("Serialization error:", error);
+      done(error);
+    }
   });
 
+  // Correct deserializeUser implementation
   passport.deserializeUser(async (serializedUser, done) => {
     try {
+      // Handle case where just the ID string was serialized
+      const userId =
+        typeof serializedUser === "string"
+          ? serializedUser
+          : serializedUser?.id;
+
+      if (!userId) {
+        return done(new Error("No user ID found in session"));
+      }
+
       const user = await prisma.user.findUnique({
-        where: { id: serializedUser.id },
+        where: { id: userId }, // Just pass the string ID
         include: {
           roles: {
             include: {
-              role: {
-                include: { permissions: true },
-              },
+              role: true,
             },
-          },
-          sessions: {
-            where: { id: serializedUser.sessionId },
           },
         },
       });
-
-      if (!user || user.sessions.length === 0) {
-        return done(new Error("Session expired or invalid"));
-      }
 
       done(null, user);
     } catch (error) {

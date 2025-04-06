@@ -96,6 +96,7 @@ model User {
   failedLoginAttempts Int                       @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime?                 @map("locked_until")
   profile             Profile?
+  googleId            String?                   @unique @map("google_id") @db.VarChar(255)
   sessions            Session[]
   roles               UserRole[]
   auditLogs           AuditLog[]
@@ -499,7 +500,7 @@ model ConversationParticipant {
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   conversationId String       @map("conversation_id")
   user           User         @relation(fields: [userId], references: [id])
-  userId         String       @map("user_id") @db.Uuid  // Fixed mapping
+  userId         String       @map("user_id") @db.Uuid // Fixed mapping
   joinedAt       DateTime     @default(now()) @map("joined_at")
 
   @@id([conversationId, userId])
@@ -511,7 +512,7 @@ model MessageMetadata {
   conversation   Conversation  @relation(fields: [conversationId], references: [id])
   conversationId String        @map("conversation_id")
   sender         User          @relation(fields: [senderId], references: [id])
-  senderId       String        @map("sender_id") @db.Uuid  // Ensure this is a UUID
+  senderId       String        @map("sender_id") @db.Uuid // Ensure this is a UUID
   sentAt         DateTime      @default(now()) @map("sent_at")
   mongoId        String        @map("mongo_id") // Reference to MongoDB document
   status         MessageStatus @default(SENT)

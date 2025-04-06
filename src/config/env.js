@@ -88,7 +88,7 @@ const config = convict({
   googleCallbackURL: {
     doc: "Google OAuth callback URL",
     format: String,
-    default: "/api/auth/google/callback",
+    default: "http://localhost:3000/api/auth/google/callback",
     env: "GOOGLE_CALLBACK_URL",
   },
   email: {
@@ -138,7 +138,19 @@ const config = convict({
     format: String,
     default: 'mongodb://localhost:27017/corent',
     env: 'MONGODB_URL'
-  }
+  },
+  sessionSecrate: {
+    default:"your_session_secret",
+    doc: "Session secret key",
+    format: String,
+    env: "SESSION_SECRET",
+  },
+  frontendSuccessUrl: {
+    doc: "Frontend success URL",
+    format: String,
+    default: "http://localhost:3000/",
+    env: "FRONTEND_SUCCESS_URL",
+  },
 });
 
 // Perform validation

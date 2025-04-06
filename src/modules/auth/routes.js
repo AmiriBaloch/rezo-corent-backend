@@ -16,6 +16,11 @@ import validate from "../../middlewares/validate.js";
 import authSchemas from "./schemas.js";
 import { authenticateUser as authMiddleware } from "../../middlewares/authentication.js";
 import { guestMiddleware } from "../../middlewares/guestMiddleware.js";
+import crypto from "crypto";
+import config from "../../config/env.js";
+import logger from "../../config/logger.js";
+import prisma from "../../config/database.js";
+import { generateRefreshToken } from "../../utils/generateToken.js";
 // Rate limiting configuration
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -220,15 +225,42 @@ router.post(
  *         description: Redirect to Google
  */
 
-// Google OAuth with state validation
 router.get("/google", (req, res, next) => {
-  req.session.state = crypto.randomBytes(16).toString("hex");
-  passport.authenticate("google", {
-    state: req.session.state,
-    session: false,
-    scope: ["profile", "email"],
-  })(req, res, next);
+  try {
+    // Enhanced session verification
+    if (!req.session) {
+      const error = new Error("Session middleware not configured");
+      error.code = "SESSION_ERROR";
+      throw error;
+    }
+
+    // Generate state with enhanced entropy
+    const state = crypto.randomBytes(32).toString("hex");
+    req.session.oauthState = state;
+
+
+
+    // Create the authenticator with explicit parameters
+    const authenticator = passport.authenticate("google", {
+      scope: ["profile", "email", "openid"],
+      accessType: "offline",
+      prompt: "consent",
+      state: state,
+      callbackURL: config.get("googleCallbackURL"), // Explicitly set
+    });
+
+    // Execute authentication
+    authenticator(req, res, next);
+  } catch (error) {
+    console.error("OAuth Initiation Error:", {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+    });
+    next(error);
+  }
 });
+
 /**
  * @openapi
  * /auth/google/callback:
@@ -249,13 +281,169 @@ router.get("/google", (req, res, next) => {
 
 router.get(
   "/google/callback",
-  passport.authenticate("google", {
-    failureRedirect: "/auth/error",
-    session: false,
-  }),
-  googleAuthCallback
-);
+  // State validation middleware
+  (req, res, next) => {
 
+
+    if (!req.query.state || req.query.state !== req.session.oauthState) {
+      console.warn("State parameter mismatch");
+      return res.redirect("/api/auth/error?code=invalid_state");
+    }
+    next();
+  },
+
+  // Authentication handler
+  (req, res, next) => {
+    passport.authenticate(
+      "google",
+      {
+        failureRedirect: "/api/auth/error",
+        failureMessage: true,
+      },
+      async (err, user, info) => {
+        try {
+
+          if (err) {
+            console.error("Authentication error:", err);
+            return res.redirect("/api/auth/error?code=auth_error");
+          }
+
+          if (!user) {
+            console.error("No user returned - Info:", info);
+            return res.redirect("/api/auth/error?code=no_user");
+          }
+
+          // Ensure user object is properly structured
+          const completeUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            include: {
+              roles: {
+                include: {
+                  role: true,
+                },
+              },
+            },
+          });
+
+          if (!completeUser) {
+            console.error("User not found in database after auth");
+            return res.redirect("/api/auth/error?code=user_not_found");
+          }
+
+          // Add this line to ensure proper serialization
+          req.user = completeUser;
+
+          req.logIn(completeUser, (loginErr) => {
+            if (loginErr) {
+              console.error("Login error:", loginErr);
+              return next(loginErr);
+            }
+            next();
+          });
+        } catch (error) {
+          console.error("Auth callback processing error:", error);
+          return res.redirect("/api/auth/error?code=processing_error");
+        }
+      }
+    )(req, res, next);
+  },
+
+  // Session creation handler
+  async (req, res) => {
+    try {
+
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      const refreshToken = generateRefreshToken(req.user.id); // Generate refresh token
+      await prisma.session.create({
+        data: {
+          userId: req.user.id,
+          sessionToken,
+          deviceInfo: req.headers["user-agent"],
+          ipAddress: req.ip,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+          refreshToken, // Add this
+        },
+      });
+
+      res.cookie("session_token", sessionToken, {
+        httpOnly: true,
+        secure: config.get("env") === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+
+      res.redirect(config.get("frontendSuccessUrl"));
+    } catch (error) {
+      console.error("Session creation failed:", error);
+      res.redirect("/api/auth/error?code=session_error");
+    }
+  }
+);
+// Add this temporary route to see the full OAuth URL being generated
+router.get("/google/debug", (req, res) => {
+  const state = crypto.randomBytes(16).toString("hex");
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams(
+    {
+      response_type: "code",
+      client_id: config.get("googleClientId"),
+      redirect_uri: config.get("googleCallbackURL"),
+      scope: "profile email",
+      state: state,
+      access_type: "offline",
+      prompt: "consent",
+    }
+  )}`;
+
+  res.json({ authUrl });
+});
+
+router.get("/google/verify", (req, res) => {
+  try {
+    const configCheck = {
+      success: true,
+      googleClientId: !!config.get("googleClientId"),
+      googleCallbackURL: config.get("googleCallbackURL"),
+      registeredURIs: [
+        "http://localhost:3000/api/auth/google/callback",
+        "http://localhost:3000/auth/google/callback",
+      ],
+      exactMatch:
+        config.get("googleCallbackURL") ===
+        "http://localhost:3000/api/auth/google/callback",
+      env: config.get("env"),
+    };
+
+    res.json(configCheck);
+  } catch (error) {
+    console.error("Verification error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Configuration verification failed",
+      error: error.message,
+    });
+  }
+});
+
+router.get("/google/callback/test", (req, res) => {
+  try {
+    res.json({
+      success: true,
+      message: "Callback route is working",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Callback test error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Callback test failed",
+      error: error.message,
+    });
+  }
+});
+router.get("/error", (req, res) => {
+  const errorCode = req.query.code || "unknown_error";
+  res.status(400).json({ error: `Authentication failed: ${errorCode}` });
+});
 // Authenticated routes
 router.use(authMiddleware());
 /**

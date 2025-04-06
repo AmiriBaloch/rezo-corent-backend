@@ -51,7 +51,7 @@ async function main() {
           name: "tenant",
           description: "Rental tenant with booking capabilities",
           isSystem: false,
-          isDefault: false,
+          isDefault: true,
         },
       }),
     ]);
