@@ -75,13 +75,13 @@ const config = convict({
   googleClientId: {
     doc: "Google Client ID",
     format: String,
-    default: "",
+    default: "1073930846177-docvkc3l97sa6didhrrrr7jkr07302vq.apps.googleusercontent.com",
     env: "GOOGLE_CLIENT_ID",
   },
   googleClientSecret: {
     doc: "Google Client Secret",
     format: String,
-    default: "",
+    default: "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",
     env: "GOOGLE_CLIENT_SECRET",
     sensitive: true,
   },
