@@ -29,8 +29,10 @@ enum PropertyStatus {
 enum BookingStatus {
   PENDING
   CONFIRMED
-  CANCELLED
+  ACTIVE
   COMPLETED
+  CANCELLED
+  REFUNDED
 }
 
 enum PaymentStatus {
@@ -397,9 +399,16 @@ model Availability {
   endDate     DateTime @map("end_date")
   price       Decimal  @db.Money
   isAvailable Boolean  @default(true) @map("is_available")
+  bookingId   String?  @db.Uuid
+  notes       String?  @db.VarChar(255)
+  // Relationships
   property    Property @relation(fields: [propertyId], references: [id])
+  booking     Booking? @relation(fields: [bookingId], references: [id])
 
+  @@unique([propertyId, startDate])
   @@index([propertyId, startDate, endDate])
+  @@index([isAvailable])
+  @@index([bookingId])
   @@map("property_availability")
 }
 
@@ -407,25 +416,39 @@ model Availability {
 // Booking System
 // --------------------------------------------------
 model Booking {
-  id         String        @id @default(uuid()) @db.Uuid
-  propertyId String        @db.Uuid
-  tenantId   String        @db.Uuid
-  startDate  DateTime      @map("start_date")
-  endDate    DateTime      @map("end_date")
-  totalPrice Decimal       @map("total_price") @db.Money
-  status     BookingStatus @default(PENDING)
-  createdAt  DateTime      @default(now()) @map("created_at")
-  updatedAt  DateTime      @updatedAt @map("updated_at")
+  id                 String        @id @default(uuid()) @db.Uuid
+  propertyId         String        @db.Uuid
+  tenantId           String        @db.Uuid
+  startDate          DateTime      @map("start_date")
+  endDate            DateTime      @map("end_date")
+  totalPrice         Decimal       @map("total_price") @db.Money
+  basePrice          Decimal       @map("base_price") @db.Money
+  taxes              Decimal       @db.Money
+  fees               Decimal       @db.Money
+  discountAmount     Decimal       @default(0) @map("discount_amount") @db.Money
+  currency           String        @default("USD") @db.VarChar(3)
+  adults             Int           @default(1)
+  children           Int           @default(0)
+  infants            Int           @default(0)
+  specialRequests    String?       @db.VarChar(500)
+  cancellationReason String?       @db.VarChar(255)
+  cancellationDate   DateTime?     @map("cancellation_date")
+  status             BookingStatus @default(PENDING)
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
 
   // Relationships
-  property Property @relation(fields: [propertyId], references: [id])
-  tenant   User     @relation(fields: [tenantId], references: [id])
-  payment  Payment?
-  Review   Review?
+  property     Property       @relation(fields: [propertyId], references: [id])
+  tenant       User           @relation(fields: [tenantId], references: [id])
+  payment      Payment?
+  Review       Review?
+  availability Availability[]
 
   @@index([propertyId])
   @@index([tenantId])
   @@index([status])
+  @@index([startDate, endDate])
+  @@index([createdAt])
   @@map("bookings")
 }
 
@@ -433,26 +456,33 @@ model Booking {
 // Payment System
 // --------------------------------------------------
 model Payment {
-  id            String        @id @default(uuid()) @db.Uuid
-  bookingId     String        @unique @db.Uuid
-  amount        Decimal       @db.Money
-  currency      String        @default("USD") @db.VarChar(3)
-  paymentMethod String        @map("payment_method") @db.VarChar(20)
-  transactionId String        @unique @map("transaction_id") @db.VarChar(255)
-  status        PaymentStatus
-  processedAt   DateTime?     @map("processed_at")
-  createdAt     DateTime      @default(now()) @map("created_at")
+  id              String        @id @default(uuid()) @db.Uuid
+  bookingId       String        @unique @db.Uuid
+  amount          Decimal       @db.Money
+  currency        String        @default("USD") @db.VarChar(3)
+  paymentMethod   String        @map("payment_method") @db.VarChar(20)
+  transactionId   String        @unique @map("transaction_id") @db.VarChar(255)
+  status          PaymentStatus
+  refundId        String?       @unique @map("refund_id") @db.VarChar(255)
+  refundAmount    Decimal?      @map("refund_amount") @db.Money
+  capturedAt      DateTime?     @map("captured_at")
+  refundedAt      DateTime?     @map("refunded_at")
+  failureReason   String?       @map("failure_reason") @db.VarChar(255)
+  paymentIntentId String        @unique @map("payment_intent_id") @db.VarChar(255)
+  processedAt     DateTime?     @map("processed_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  userId          String?       @db.Uuid
+  propertyId      String?       @db.Uuid
 
   // Relationships
-  booking    Booking   @relation(fields: [bookingId], references: [id])
-  User       User?     @relation(fields: [userId], references: [id])
-  userId     String?   @db.Uuid
-  Property   Property? @relation(fields: [propertyId], references: [id])
-  propertyId String?   @db.Uuid
+  booking  Booking   @relation(fields: [bookingId], references: [id])
+  User     User?     @relation(fields: [userId], references: [id])
+  Property Property? @relation(fields: [propertyId], references: [id])
 
   @@index([bookingId])
   @@index([transactionId])
   @@index([status])
+  @@index([processedAt])
   @@map("payments")
 }
 
@@ -460,14 +490,22 @@ model Payment {
 // Review System
 // --------------------------------------------------
 model Review {
-  id         String   @id @default(uuid()) @db.Uuid
-  propertyId String   @db.Uuid
-  bookingId  String   @unique @db.Uuid
-  tenantId   String   @db.Uuid
-  rating     Int
-  comment    String?  @db.VarChar(500)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  propertyId    String   @db.Uuid
+  bookingId     String   @unique @db.Uuid
+  tenantId      String   @db.Uuid
+  rating        Int      @db.SmallInt
+  comment       String?  @db.VarChar(500)
+  cleanliness   Int      @db.SmallInt
+  accuracy      Int      @db.SmallInt
+  checkIn       Int      @db.SmallInt
+  communication Int      @db.SmallInt
+  location      Int      @db.SmallInt
+  value         Int      @db.SmallInt
+  hostReply     String?  @map("host_reply") @db.VarChar(500)
+  isAnonymous   Boolean  @default(false) @map("is_anonymous")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   // Relationships
   property Property @relation(fields: [propertyId], references: [id])
@@ -476,6 +514,7 @@ model Review {
 
   @@unique([propertyId, tenantId])
   @@index([propertyId, rating])
+  @@index([createdAt])
   @@map("reviews")
 }
 
