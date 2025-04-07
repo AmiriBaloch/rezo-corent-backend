@@ -8,6 +8,7 @@ import rolePermissionsRoutes from "./role-permissions/routes.js";
 import propertyRoutes from "./properties/routes.js";
 import messageRoutes from "./message/routes.js";
 import profileRoutes from "./profile/routes.js";
+import bookingRoutes from "./bookings/routes.js";
 const routes = Router();
 routes.use("/auth", authRoutes);
 routes.use("/roles", rolesRoutes);
@@ -17,6 +18,7 @@ routes.use("/user-permissions", rolePermissionsRoutes);
 routes.use("/properties", propertyRoutes);
 routes.use("/conversations", messageRoutes);
 routes.use("/profile", profileRoutes);
+routes.use("/bookings", bookingRoutes);
 
 routes.get(
   "/protected",

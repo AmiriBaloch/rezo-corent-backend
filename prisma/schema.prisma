@@ -331,33 +331,33 @@ model AuditLog {
 // Property Management
 // --------------------------------------------------
 model Property {
-  id           String         @id @default(uuid()) @db.Uuid
-  ownerId      String         @db.Uuid
-  title        String         @db.VarChar(120)
-  description  String
-  basePrice    Decimal        @map("base_price") @db.Money
-  currency     String         @default("USD") @db.VarChar(3)
-  status       PropertyStatus @default(PENDING)
-  location     Json // { lat: Decimal, lng: Decimal, plusAccuracy: Float? }
-  address      String         @db.VarChar(255)
-  maxGuests    Int            @map("max_guests")
-  availability Availability[]
-  bookings     Booking[]
-  amenities    Amenity[]
-  roomSpecs    RoomSpec[]
-  houseRules   Json? // Flexible rule structure
-  photos       String[]       @default([]) // URLs to high-res images
-  virtualTours String[]       @default([]) // URLs to 360 tours
-  minStay      Int            @default(1) @map("min_stay")
-  maxStay      Int?           @map("max_stay")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
-  deletedAt    DateTime?      @map("deleted_at")
-
+  id                 String         @id @default(uuid()) @db.Uuid
+  ownerId            String         @db.Uuid
+  title              String         @db.VarChar(120)
+  description        String
+  basePrice          Decimal        @map("base_price") @db.Money
+  currency           String         @default("USD") @db.VarChar(3)
+  status             PropertyStatus @default(PENDING)
+  location           Json // { lat: Decimal, lng: Decimal, plusAccuracy: Float? }
+  address            String         @db.VarChar(255)
+  maxGuests          Int            @map("max_guests")
+  availability       Availability[]
+  bookings           Booking[]
+  amenities          Amenity[]
+  roomSpecs          RoomSpec[]
+  houseRules         Json? // Flexible rule structure
+  photos             String[]       @default([]) // URLs to high-res images
+  virtualTours       String[]       @default([]) // URLs to 360 tours
+  minStay            Int            @default(1) @map("min_stay")
+  maxStay            Int?           @map("max_stay")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  deletedAt          DateTime?      @map("deleted_at")
+  cancellationPolicy String?
   // Relationships
-  owner    User      @relation(fields: [ownerId], references: [id])
-  reviews  Review[]
-  payments Payment[]
+  owner              User           @relation(fields: [ownerId], references: [id])
+  reviews            Review[]
+  payments           Payment[]
 
   @@index([ownerId])
   @@index([status])
@@ -438,7 +438,7 @@ model Booking {
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
   // Relationships
-  property     Property       @relation(fields: [propertyId], references: [id])
+  property     Property?      @relation(fields: [propertyId], references: [id])
   tenant       User           @relation(fields: [tenantId], references: [id])
   payment      Payment?
   Review       Review?
@@ -460,15 +460,15 @@ model Payment {
   bookingId       String        @unique @db.Uuid
   amount          Decimal       @db.Money
   currency        String        @default("USD") @db.VarChar(3)
-  paymentMethod   String        @map("payment_method") @db.VarChar(20)
-  transactionId   String        @unique @map("transaction_id") @db.VarChar(255)
+  paymentMethod   String?       @db.VarChar(20)
+  transactionId   String?       @unique @map("transaction_id") @db.VarChar(255)
   status          PaymentStatus
   refundId        String?       @unique @map("refund_id") @db.VarChar(255)
   refundAmount    Decimal?      @map("refund_amount") @db.Money
   capturedAt      DateTime?     @map("captured_at")
   refundedAt      DateTime?     @map("refunded_at")
   failureReason   String?       @map("failure_reason") @db.VarChar(255)
-  paymentIntentId String        @unique @map("payment_intent_id") @db.VarChar(255)
+  paymentIntentId String?       @unique @map("payment_intent_id") @db.VarChar(255)
   processedAt     DateTime?     @map("processed_at")
   createdAt       DateTime      @default(now()) @map("created_at")
   userId          String?       @db.Uuid

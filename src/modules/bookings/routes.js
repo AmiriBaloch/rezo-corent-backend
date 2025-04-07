@@ -1,78 +1,87 @@
-// bookings/routes.js
-import express from 'express';
-import {createBooking} from './controller.js';
-import {authenticateUser} from '../../middlewares/authentication.js';
-import {canCreateBooking} from './policy.js';
-import { validate } from '../../middleware/validate.js';
-import {
-  createBookingSchema,
-  cancelBookingSchema,
-  availabilitySchema,
-  bulkBookingSchema
-} from './schema.js';
-import rateLimit from 'express-rate-limit';
+import express from "express";
+import BookingController from "./controller.js";
+import { authenticateUser } from "../../middlewares/authentication.js";
+import rateLimit from "express-rate-limit";
+import Joi from "joi";
+import { bookingSchemas, validate } from "./schema.js";
 
 const router = express.Router();
 
-// Rate limiting for critical endpoints
-const bookingLimiter = rateLimit({
+// Configure rate limiters
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many booking attempts, please try again later'
+  max: 300, // General API limit
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-// Create Booking
-router.post('/',
+const bookingCreationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Allow 20 booking creations per window
+  message: "Too many booking creation attempts, please try again later",
+});
+
+const bulkOperationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // Allow 3 bulk operations per hour
+  message: "Too many bulk booking operations, please try again later",
+});
+// router.post("/", bookingCreationLimiter, BookingController.createBooking); // Create new booking
+// Apply global middleware
+router.use(authenticateUser()); // Authentication for all booking routes
+router.use(generalLimiter); // Apply general rate limiting to all routes
+
+// RESTful Booking Routes
+router.get(
+  "/",
   authenticateUser(),
-  canCreateBooking(),
-  // validate(createBookingSchema),
-  bookingLimiter,
-  createBooking()
+  // validate({
+  //   query: Joi.object({
+  //     status: Joi.string()
+  //       .valid("PENDING", "CONFIRMED", "CANCELLED", "COMPLETED")
+  //       .optional(),
+  //     page: Joi.number().integer().min(1).default(1),
+  //     limit: Joi.number().integer().min(1).max(100).default(10),
+  //   }),
+  // }),
+  BookingController.getUserBookings
 );
 
-// Cancel Booking
-// router.put('/:id/cancel',
-//   authMiddleware,
-//   bookingPolicy.canModifyBooking,
-//   validate(cancelBookingSchema),
-//   controller.cancelBooking
-// );
+router.post(
+  "/",
+  bookingCreationLimiter,
+  validate(bookingSchemas.createBooking),
+  BookingController.createBooking
+); // Create new booking
 
-// Get Booking Details
-// router.get('/:id',
-//   authMiddleware,
-//   bookingPolicy.canViewBooking,
-//   controller.getBooking
-// );
+// router
+//   .route("/bulk")
+//   .post(bulkOperationLimiter, BookingController.createBulkBookings); // Bulk operations
 
-// Check Availability
-// router.post('/availability',
-//   authMiddleware,
-//   bookingPolicy.canViewProperty,
-//   validate(availabilitySchema),
-//   controller.checkAvailability
-// );
+router
+  .route("/:id")
+  .get(BookingController.getBooking) // Get booking details
+  .put(
+    bookingCreationLimiter,
+    // validate({ body: bookingSchemas.updateBooking }),
+    BookingController.updateBooking
+  ); // Update booking
 
-// Bulk Booking Operations
-const bulkLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // Limit to 5 bulk operations per hour
-  message: 'Too many bulk operations, please try again later'
-});
+router
+  .route("/:id/cancel")
+  .patch(bookingCreationLimiter, BookingController.cancelBooking); // Cancel booking
 
-// router.post('/bulk',
-//   authMiddleware,
-//   bookingPolicy.canCreateBooking,
-//   validate(bulkBookingSchema),
-//   bulkLimiter,
-//   controller.processBulkBookings
-// );
+router.route("/:id/invoice").get(BookingController.getInvoice); // Get booking invoice
 
-// New endpoint: List User Bookings
-// router.get('/',
-//   authMiddleware,
-//   bookingPolicy.canViewBookings,
-//   controller.listUserBookings
-// );
+// Availability Check (public endpoint)
+router.get(
+  "/properties/:id/availability",
+  rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 30, // 30 requests per minute
+    message: "Too many availability checks, please slow down",
+  }),
+  BookingController.checkAvailability
+);
 
 export default router;
