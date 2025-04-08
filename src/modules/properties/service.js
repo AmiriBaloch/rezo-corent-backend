@@ -729,7 +729,7 @@ export class PropertyService {
           },
         };
       }
-      this.syncAllApprovedProperties()
+      this.syncAllApprovedProperties();
       // First search in MongoDB for performance
       const mongoResults = await PropertySearch.find(mongoQuery)
         .skip((page - 1) * limit)
@@ -797,26 +797,26 @@ export class PropertyService {
     }
   }
 
-   /**
+  /**
    * Update property status and handle search indexing
-   * @param {string} propertyId 
-   * @param {string} status 
+   * @param {string} propertyId
+   * @param {string} status
    * @returns {Promise<Property>}
    */
-   static async updatePropertyStatus(propertyId, status) {
+  static async updatePropertyStatus(propertyId, status) {
     const property = await prisma.property.update({
       where: { id: propertyId },
       data: { status },
       include: {
         roomSpecs: true,
-        amenities: true
-      }
+        amenities: true,
+      },
     });
 
     // Automatically index when status changes to APPROVED
-    if (status === 'APPROVED') {
+    if (status === "APPROVED") {
       await this.indexProperty(propertyId);
-    } else if (status !== 'APPROVED') {
+    } else if (status !== "APPROVED") {
       // Remove from search index if status changes from APPROVED
       await PropertySearch.deleteOne({ propertyId });
     }
@@ -836,18 +836,19 @@ export class PropertyService {
           roomSpecs: true,
           amenities: true,
           reviews: { select: { rating: true } },
-          _count: { select: { bookings: true } }
-        }
+          _count: { select: { bookings: true } },
+        },
       });
 
       if (!property) throw new Error("Property not found");
-      if (property.status !== 'APPROVED') {
+      if (property.status !== "APPROVED") {
         throw new Error("Only APPROVED properties can be indexed");
       }
 
       // Calculate statistics
-      const avgRating = property.reviews.length 
-        ? property.reviews.reduce((sum, r) => sum + r.rating, 0) / property.reviews.length
+      const avgRating = property.reviews.length
+        ? property.reviews.reduce((sum, r) => sum + r.rating, 0) /
+          property.reviews.length
         : 0;
 
       // Prepare comprehensive search document
@@ -859,22 +860,26 @@ export class PropertyService {
         currency: property.currency,
         location: {
           type: "Point",
-          coordinates: property.location.coordinates || 
-            [property.location.lng, property.location.lat]
+          coordinates: property.location.coordinates || [
+            property.location.lng,
+            property.location.lat,
+          ],
         },
         address: property.address,
         maxGuests: property.maxGuests,
-        amenities: property.amenities.map(a => a.name),
-        propertyType: property.roomSpecs.find(r => r.type !== 'BEDROOM')?.type,
-        bedrooms: property.roomSpecs.find(r => r.type === 'BEDROOM')?.count || 0,
+        amenities: property.amenities.map((a) => a.name),
+        propertyType: property.roomSpecs.find((r) => r.type !== "BEDROOM")
+          ?.type,
+        bedrooms:
+          property.roomSpecs.find((r) => r.type === "BEDROOM")?.count || 0,
         photos: property.photos,
         stats: {
           rating: avgRating,
           reviewCount: property.reviews.length,
-          bookedCount: property._count.bookings
+          bookedCount: property._count.bookings,
         },
         createdAt: property.createdAt,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
 
       // Upsert with atomic operation
@@ -963,18 +968,16 @@ export class PropertyService {
   static async syncAllApprovedProperties() {
     try {
       const approvedProperties = await prisma.property.findMany({
-        where: { status: 'APPROVED' },
-        select: { id: true }
+        where: { status: "APPROVED" },
+        select: { id: true },
       });
 
       const results = await Promise.allSettled(
-        approvedProperties.map(p => 
-          PropertyService.indexProperty(p.id)
-        )
+        approvedProperties.map((p) => PropertyService.indexProperty(p.id))
       );
 
-      const successful = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected').length;
+      const successful = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.filter((r) => r.status === "rejected").length;
 
       console.log(`Search index sync complete. 
         Successful: ${successful}, Failed: ${failed}`);
@@ -986,5 +989,108 @@ export class PropertyService {
     }
   }
 
+  static async CreateRoomSpec(propertyId, roomSpecData) {
+    try {
+      const roomSpec = await prisma.roomSpec.create({
+        data: {
+          propertyId,
+          ...roomSpecData,
+        },
+      });
 
+      // Update the search index if necessary
+      await PropertyService.indexProperty(propertyId);
+
+      return roomSpec;
+    } catch (error) {
+      this.handleDatabaseError(error, "Failed to create room specification");
+    }
+  }
+  static async updateRoomSpec(propertyId, roomSpecId, roomSpecData) {
+    try {
+      // check proprty
+      const property = await prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { id: true },
+      });
+      if (!property) throw new NotFoundError("Property not found");
+      // check room spec
+      const roomSpec = await prisma.roomSpec.findUnique({
+        where: { id: roomSpecId },
+        select: { id: true },
+      });
+      if (!roomSpec) throw new NotFoundError("Room specification not found");
+      const UpdateRoomSpec = await prisma.roomSpec.update({
+        where: { id: roomSpecId },
+        data: roomSpecData,
+      });
+
+      // Update the search index if necessary
+      await PropertyService.indexProperty(propertyId);
+
+      return UpdateRoomSpec;
+    } catch (error) {
+      this.handleDatabaseError(error, "Failed to update room specification");
+    }
+  }
+  static async deleteRoomSpec(propertyId, roomSpecId) {
+    try {
+      // check proprty
+      const property = await prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { id: true },
+      });
+      if (!property) throw new NotFoundError("Property not found");
+      // check room spec
+      const roomSpec = await prisma.roomSpec.findUnique({
+        where: { id: roomSpecId },
+        select: { id: true },
+      });
+      if (!roomSpec) throw new NotFoundError("Room specification not found");
+
+      const deletedRoomSpec = await prisma.roomSpec.delete({
+        where: { id: roomSpecId },
+      });
+
+      // Update the search index if necessary
+      await PropertyService.indexProperty(propertyId);
+
+      return deletedRoomSpec;
+    } catch (error) {
+      this.handleDatabaseError(error, "Failed to delete room specification");
+    }
+  }
+  static async getRoomSpecListbyPropertyId(propertyId) {
+    const roomSpecs = await prisma.roomSpec.findMany({
+      where: { propertyId },
+      select: {
+        id: true,
+        type: true,
+        count: true,
+        description: true,
+        sizeSqft: true,
+      },
+    });
+
+    return roomSpecs;
+  }
+  static async getRoomSpec(roomSpecId) {
+    try {
+      console.log("RoomSpec ID in service:", roomSpecId);
+      const roomSpecs = await prisma.roomSpec.findUnique({
+        where: { id: roomSpecId },
+        select: {
+          id: true,
+          type: true,
+          count: true,
+          description: true,
+          sizeSqft: true,
+        },
+      });
+  
+      return roomSpecs;
+    } catch (error) {
+      this.handleDatabaseError(error, "Failed to fetch room specifications");
+    }
+  }
 }

@@ -472,4 +472,148 @@ export class PropertyController {
       });
     }
   }
+
+  static async createRoomSpec(req, res) {
+    try {
+      const { propertyId } = req.params;
+      const { roomType, bedCount, description, size } = req.body;
+
+      if (
+        roomType == null ||
+        bedCount == null ||
+        description == null ||
+        size == null
+      ) {
+        throw new ValidationError(
+          "Fields roomType, bedCount, description, and size are required"
+        );
+      }
+
+      const data = {
+        type: roomType,
+        count: bedCount,
+        description,
+        sizeSqft: size,
+      };
+
+      // Create room specification
+      const roomSpec = await PropertyService.CreateRoomSpec(propertyId, data);
+
+      res.status(201).json({
+        status: "success",
+        data: roomSpec,
+      });
+    } catch (error) {
+      console.error("Failed to create room specification:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to create room specification",
+      });
+    }
+  }
+
+  static async updateRoonmSpec(req, res) {
+    try {
+      const { propertyId, roomId } = req.params;
+      const { roomType, bedCount, description, size } = req.body;
+
+      // Validate input data
+      if (
+        roomType == null ||
+        bedCount == null ||
+        description == null ||
+        size == null
+      ) {
+        throw new ValidationError(
+          "Fields roomType, bedCount, description, and size are required"
+        );
+      }
+
+      const data = {
+        type: roomType,
+        count: bedCount,
+        description,
+        sizeSqft: size,
+      };
+
+      // Create room specification
+      const roomSpec = await PropertyService.updateRoomSpec(
+        propertyId,
+        roomId,
+        data
+      );
+
+      res.status(201).json({
+        status: "success",
+        data: roomSpec,
+      });
+    } catch (error) {
+      console.error("Failed to create room specification:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to create room specification",
+      });
+    }
+  }
+
+  static async deleteRoomSpec(req, res) {
+    try {
+      const { propertyId, roomId } = req.params;
+
+      // Delete room specification
+      await PropertyService.deleteRoomSpec(propertyId, roomId);
+
+      res.status(204).json({
+        status: "success",
+        message: "Room specification deleted successfully",
+      });
+    } catch (error) {
+      console.error("Failed to delete room specification:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to delete room specification",
+      });
+    }
+  }
+
+  static async getRoomSpec(req, res) {
+    try {
+      const { roomId } = req.params;
+
+      // Fetch room specifications
+      const roomSpecs = await PropertyService.getRoomSpec(roomId);
+
+      res.status(200).json({
+        status: "success",
+        data: roomSpecs,
+      });
+    } catch (error) {
+      console.error("Failed to fetch room specifications:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to fetch room specifications",
+      });
+    }
+  }
+  static async getRoomSpecsListbypropertyId(req, res) {
+    try {
+      const { propertyId } = req.params;
+
+      // Fetch room specifications
+      const roomSpecs = await PropertyService.getRoomSpecListbyPropertyId(
+        propertyId
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: roomSpecs,
+      });
+    } catch (error) {
+      console.error("Failed to fetch room specifications:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to fetch room specifications",
+      });
+    }
+  }
 }

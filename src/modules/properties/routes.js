@@ -235,6 +235,32 @@ router.get("/suggestions", PropertyController.getSearchSuggestions);
  */
 router.post("/reindex/:propertyId", PropertyController.reindexProperty);
 
+router.post(
+  "/:propertyId/rooms",
+  authenticateUser(),
+  PropertyController.createRoomSpec
+);
+router.put(
+  "/:propertyId/rooms/:roomId",
+  authenticateUser(),
+  PropertyController.updateRoonmSpec
+);
+router.delete(
+  "/:propertyId/rooms/:roomId",
+  authenticateUser(),
+  PropertyController.deleteRoomSpec
+);
+
+router.get(
+  "/:propertyId/rooms",
+  authenticateUser(),
+  PropertyController.getRoomSpecsListbypropertyId
+);
+router.get(
+  "/:propertyId/rooms/:roomId",
+  authenticateUser(),
+  PropertyController.getRoomSpec
+);
 // Admin routes
 
 router.patch(

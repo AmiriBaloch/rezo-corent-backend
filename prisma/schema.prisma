@@ -42,14 +42,14 @@ enum PaymentStatus {
   REFUNDED
 }
 
-enum RoomType {
-  BEDROOM
-  BATHROOM
-  LIVING_ROOM
-  KITCHEN
-  DINING_ROOM
-  OTHER
-}
+// enum RoomType {
+//   BEDROOM
+//   BATHROOM
+//   LIVING_ROOM
+//   KITCHEN
+//   DINING_ROOM
+//   OTHER
+// }
 
 // enum AmenityCategory {
 //   ESSENTIALS
@@ -374,7 +374,7 @@ model Property {
 model RoomSpec {
   id          String   @id @default(uuid()) @db.Uuid
   propertyId  String   @db.Uuid
-  type        RoomType
+  type        String?  @db.VarChar(50)
   count       Int
   sizeSqft    Int?     @map("size_sqft")
   description String?
@@ -550,15 +550,16 @@ model ConversationParticipant {
 }
 
 model MessageMetadata {
-  id             String        @id @default(uuid()) @db.Uuid
-  conversation   Conversation  @relation(fields: [conversationId], references: [id])
-  conversationId String        @map("conversation_id")
-  sender         User          @relation(fields: [senderId], references: [id])
-  senderId       String        @map("sender_id") @db.Uuid // Ensure this is a UUID
-  sentAt         DateTime      @default(now()) @map("sent_at")
-  mongoId        String        @map("mongo_id") // Reference to MongoDB document
-  status         MessageStatus @default(SENT)
-  deliveries DeliveryReceipt[]
+  id             String            @id @default(uuid()) @db.Uuid
+  conversation   Conversation      @relation(fields: [conversationId], references: [id])
+  conversationId String            @map("conversation_id")
+  sender         User              @relation(fields: [senderId], references: [id])
+  senderId       String            @map("sender_id") @db.Uuid // Ensure this is a UUID
+  sentAt         DateTime          @default(now()) @map("sent_at")
+  mongoId        String            @map("mongo_id") // Reference to MongoDB document
+  status         MessageStatus     @default(SENT)
+  deliveries     DeliveryReceipt[]
+
   // Indexes
   @@index([conversationId, sentAt])
   @@index([senderId])
@@ -566,13 +567,13 @@ model MessageMetadata {
 }
 
 model DeliveryReceipt {
-  id          String   @id @default(uuid()) @db.Uuid
-  message     MessageMetadata @relation(fields: [messageId], references: [id])
-  messageId   String   @db.Uuid
-  userId      String   @db.Uuid
-  status      MessageStatus
-  receivedAt  DateTime?
-  readAt      DateTime?
-  
+  id         String          @id @default(uuid()) @db.Uuid
+  message    MessageMetadata @relation(fields: [messageId], references: [id])
+  messageId  String          @db.Uuid
+  userId     String          @db.Uuid
+  status     MessageStatus
+  receivedAt DateTime?
+  readAt     DateTime?
+
   @@unique([messageId, userId])
 }
