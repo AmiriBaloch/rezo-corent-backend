@@ -354,6 +354,8 @@ model Property {
   updatedAt          DateTime       @updatedAt @map("updated_at")
   deletedAt          DateTime?      @map("deleted_at")
   cancellationPolicy String?
+  PropertyType       String?        @map("property_type") @db.VarChar(50) // e.g., "Apartment", "House", etc.
+  sizeSqft           Int?           @map("size_sqft") // Total size in square feet
   // Relationships
   owner              User           @relation(fields: [ownerId], references: [id])
   reviews            Review[]
@@ -556,9 +558,21 @@ model MessageMetadata {
   sentAt         DateTime      @default(now()) @map("sent_at")
   mongoId        String        @map("mongo_id") // Reference to MongoDB document
   status         MessageStatus @default(SENT)
-
+  deliveries DeliveryReceipt[]
   // Indexes
   @@index([conversationId, sentAt])
   @@index([senderId])
   @@map("message_metadata")
+}
+
+model DeliveryReceipt {
+  id          String   @id @default(uuid()) @db.Uuid
+  message     MessageMetadata @relation(fields: [messageId], references: [id])
+  messageId   String   @db.Uuid
+  userId      String   @db.Uuid
+  status      MessageStatus
+  receivedAt  DateTime?
+  readAt      DateTime?
+  
+  @@unique([messageId, userId])
 }

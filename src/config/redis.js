@@ -15,6 +15,7 @@ const redis = new Redis(redisUrl, {
 });
 
 // Redis event listeners
+redis.options.scaleReads = 'slave';
 redis.on("connect", () => {
   logger.info(`✅ Connected to Redis at ${host}:${port}`);
   if (parsedUrl.password) {

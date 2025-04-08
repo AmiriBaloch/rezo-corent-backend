@@ -8,6 +8,11 @@ const prisma = new PrismaClient({
     { level: "warn", emit: "event" },
     { level: "error", emit: "event" },
   ],
+  datasources: {
+    db: {
+      url: config.get("databaseUrl") + `&connection_limit=20&pool_timeout=10`,
+    },
+  },
 });
 
 // Prisma event logging

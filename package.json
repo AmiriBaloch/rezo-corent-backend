@@ -24,6 +24,7 @@
     "casbin": "^5.38.0",
     "casbin-prisma-adapter": "^1.7.0",
     "cloudinary": "^2.6.0",
+    "connect-redis": "^8.0.2",
     "convict": "^6.2.4",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

@@ -16,12 +16,12 @@ import { initializeCasbin } from "../config/casbin.js";
 import { connectMongoDB, disconnectMongoDB } from "./mongodb.js";
 import mongoose from "mongoose";
 import { setupWebSocket, getIO } from "../websocket/index.js";
-import { createServer } from "http";
-import session from "express-session";
-import config from "./env.js";
-
+// import { createServer } from "http";
+// import session from "express-session";
+// import config from "./env.js";
+import { sessionMiddleware } from "./session.js";
 const app = express();
-const server = createServer(app);
+// const server = createServer(app);
 
 // ========================
 // Security Middleware
@@ -44,36 +44,38 @@ app.use(
 // ========================
 // Session Middleware
 // =========================
-app.use(
-  session({
-    secret:
-      config.get("sessionSecrate") || crypto.randomBytes(64).toString("hex"),
-    resave: false,
-    saveUninitialized: false, // Changed for GDPR compliance
-    store:
-      config.get("env") === "production"
-        ? new RedisStore({ client: redisClient })
-        : null,
-    cookie: {
-      secure: false, 
-      secure: config.get("env") === "production",
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000,
-    },
-  })
-);
+app.use(sessionMiddleware);
+// app.use(
+//   session({
+//     secret:
+//       config.get("sessionSecrate") || crypto.randomBytes(64).toString("hex"),
+//     resave: false,
+//     saveUninitialized: false, // Changed for GDPR compliance
+//     store:
+//       config.get("env") === "production"
+//         ? new RedisStore({ client: redisClient })
+//         : null,
+//     cookie: {
+//       secure: false,
+//       secure: config.get("env") === "production",
+//       httpOnly: true,
+//       sameSite: "lax",
+//       maxAge: 24 * 60 * 60 * 1000,
+//     },
+//   })
+// );
+
 // ========================
 // CORS Configuration
 // ========================
-// temprarily disabled for local development 
-// app.use(
-//   cors({
-//     origin: "*", // Update for production security
-//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-//     credentials: true,
-//   })
-// );
+// temprarily disabled for local development
+app.use(
+  cors({
+    origin: ["*", "http://localhost:5173"], // Update for production security
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    credentials: true,
+  })
+);
 
 //
 //=====================================
@@ -87,7 +89,7 @@ initializePassport(passport);
 app.use(passport.initialize());
 app.use(passport.session());
 // Setup WebSocket
-setupWebSocket(server);
+// setupWebSocket(server);
 // ========================
 // Rate Limiting
 // ========================

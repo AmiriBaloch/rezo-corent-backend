@@ -137,7 +137,7 @@ const config = convict({
   mongodb: {
     doc: "MongoDB connection URL",
     format: String,
-    default: "mongodb://mongoadmin:MongoDBAdmin@147.93.84.104:27017/",
+    default: "",
     env: "MONGODB_URI",
   },
   sessionSecrate: {
