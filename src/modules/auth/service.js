@@ -132,31 +132,29 @@ export const verifyEmailService = async (code, context) => {
 export const loginUser = async (email, password, context) => {
   const rateLimitKey = `rate_limit:login:${email}`;
 
- 
-    // Get current attempts (returns null if key doesn't exist)
-    const currentAttempts = await redis.get(rateLimitKey);
-    const attempts = currentAttempts ? parseInt(currentAttempts, 10) : 0;
+  // Get current attempts (returns null if key doesn't exist)
+  const currentAttempts = await redis.get(rateLimitKey);
+  const attempts = currentAttempts ? parseInt(currentAttempts, 10) : 0;
 
-    if (attempts >= config.get("login.maxAttempts")) {
-      const ttl = await redis.ttl(rateLimitKey);
-      if (ttl < 0) {
-        // Ensure banTime is a valid positive integer
-        const banTime = parseInt(config.get("login.banTime"), 10);
-        if (isNaN(banTime) || banTime <= 0) {
-          throw new Error("Invalid banTime configuration");
-        }
-        await redis.expire(rateLimitKey, banTime);
-      }
-      throw new AuthError("Too many attempts. Try again later.");
-    }
-
-    // Increment attempts
-    await redis.incr(rateLimitKey);
-    if (attempts === 0) {
+  if (attempts >= config.get("login.maxAttempts")) {
+    const ttl = await redis.ttl(rateLimitKey);
+    if (ttl < 0) {
+      // Ensure banTime is a valid positive integer
       const banTime = parseInt(config.get("login.banTime"), 10);
+      if (isNaN(banTime) || banTime <= 0) {
+        throw new Error("Invalid banTime configuration");
+      }
       await redis.expire(rateLimitKey, banTime);
     }
+    throw new AuthError("Too many attempts. Try again later.");
+  }
 
+  // Increment attempts
+  await redis.incr(rateLimitKey);
+  if (attempts === 0) {
+    const banTime = parseInt(config.get("login.banTime"), 10);
+    await redis.expire(rateLimitKey, banTime);
+  }
 
   const user = await prisma.user.findUnique({
     where: { email },
@@ -166,9 +164,10 @@ export const loginUser = async (email, password, context) => {
       isActive: true,
       isVerified: true,
       mfaEnabled: true,
+      roles: { select: { role: { select: { name: true } } } },
     },
   });
-
+  // console.log(roles, "user found")
   if (!user) {
     logger.warn(`Login attempt for non-existent user: ${email}`);
     throw new AuthError("Invalid credentials");
@@ -201,7 +200,7 @@ export const loginUser = async (email, password, context) => {
 
   // Create new session
   const [accessToken, refreshToken] = await Promise.all([
-    generateAccessToken(user.id),
+    generateAccessToken(user.id, user.roles),
     generateRefreshToken(user.id),
   ]);
 
@@ -219,9 +218,7 @@ export const loginUser = async (email, password, context) => {
     select: { id: true },
   });
   const sessionKey = `session:${newSession.id}`;
-  const sessionExpiry = new Date(
-    Date.now() + config.get("jwtRefreshExpiration") * 1000
-  );
+
   const sessionData = {
     userId: user.id,
     email,
@@ -235,7 +232,6 @@ export const loginUser = async (email, password, context) => {
   if (isNaN(sessionExpirySeconds) || sessionExpirySeconds <= 0) {
     throw new Error("Invalid session expiration configuration");
   }
-  
 
   // const sessionKey = `session:${newSession.id}`;
   await redis.setex(

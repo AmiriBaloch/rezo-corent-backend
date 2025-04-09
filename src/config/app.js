@@ -15,6 +15,8 @@ import { swaggerDocs } from "./swagger.js";
 import { initializeCasbin } from "../config/casbin.js";
 import { connectMongoDB, disconnectMongoDB } from "./mongodb.js";
 import mongoose from "mongoose";
+import csrf from "csurf";
+
 import { setupWebSocket, getIO } from "../websocket/index.js";
 // import { createServer } from "http";
 // import session from "express-session";
@@ -23,6 +25,13 @@ import { sessionMiddleware } from "./session.js";
 const app = express();
 // const server = createServer(app);
 
+// ========================
+// Request Parsing
+// ========================
+app.use(cookieParser());
+app.use(express.json({ limit: "10kb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: true }));
 // ========================
 // Security Middleware
 // ========================
@@ -71,9 +80,10 @@ app.use(sessionMiddleware);
 // temprarily disabled for local development
 app.use(
   cors({
-    origin: ["*", "http://localhost:5173"], // Update for production security
+    origin: ["http://localhost:5173"], // Update for production security
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
+    allowedHeaders: ["Content-Type", "X-CSRF-Token"], // Add this line
   })
 );
 
@@ -104,13 +114,29 @@ app.use(
 );
 
 // ========================
-// Request Parsing
+// CSRF Protection
 // ========================
-app.use(cookieParser());
-app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true }));
-app.use(bodyParser.urlencoded({ extended: true }));
+const csrfProtection = csrf({
+  cookie: {
+    key: "_csrf",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax", // or 'strict' if same origin
+    maxAge: 86400, // 24 hours
+  },
+  value: (req) => {
+    // Check multiple possible token locations
+    return (
+      req.headers["x-csrf-token"] ||
+      req.headers["xsrf-token"] ||
+      req.body._csrf ||
+      req.query._csrf
+    );
+  },
+});
 
+// Apply CSRF middleware after session but before routes
+// app.use(csrfProtection);
 // ========================
 // Logging
 // ========================
@@ -178,7 +204,12 @@ app.get("/", async (req, res) => {
 
   res.status(healthCheck.status === "ok" ? 200 : 503).json(healthCheck);
 });
-
+app.get("/csrf-token", (req, res) => {
+  res.json({
+    message:
+      "🧠 Thanks for submitting your CSRF token. It's now being carefully reviewed by our team of invisible squirrels. A pigeon will deliver your authentication results via Morse code. Please stand by near your mailbox. 📬",
+  });
+});
 // ========================
 // Application Routes
 // ========================
@@ -189,4 +220,21 @@ app.use("/api", routes);
 // ========================
 app.use(errorHandler);
 swaggerDocs(app);
+
+// app.use((err, req, res, next) => {
+//   if (err.code === "EBADCSRFTOKEN") {
+//     console.error("CSRF Token Error:", {
+//       url: req.originalUrl,
+//       method: req.method,
+//       headers: req.headers,
+//       cookies: req.cookies,
+//     });
+//     return res.status(403).json({
+//       error: "CSRF token validation failed",
+//       solution: "Get a new token from /api/csrf-token",
+//       details: process.env.NODE_ENV === "development" ? err.message : undefined,
+//     });
+//   }
+//   next(err);
+// });
 export default app;

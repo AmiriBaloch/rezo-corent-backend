@@ -13,13 +13,14 @@ export const handleChatEvents = (ws, userId) => {
         throw new Error("Invalid message format");
       }
       // Add debug logging
-      logger.debug(`Received chat event: ${data.event}`, {
-        userId,
-        payload: data.payload,
-      });
+      // logger.debug(`Received chat event: ${data.event}`, {
+      //   userId,
+      //   payload: data.payload,
+      // });
       const { event, payload } = JSON.parse(rawData);
       switch (event) {
         case ChatEvents.SEND_MESSAGE:
+          console.log("Executing SEND_MESSAGE handler");
           await handleSendMessage(userId, payload);
           break;
 
@@ -69,149 +70,256 @@ export const handleChatEvents = (ws, userId) => {
 
 async function handleSendMessage(
   senderId,
-  { conversationId, content, attachments = [] }
+  { conversationId, content, attachments = [], receiverId }
 ) {
-  return withRetry(
-    async () => {
-      // Validate input
-      if (!conversationId || (!content?.text && attachments.length === 0)) {
-        throw new Error("Invalid message content");
-      }
+  // Validate input
+  if (!content?.text && attachments.length === 0) {
+    throw new Error("Invalid message content");
+  }
 
-      // Start a transaction
-      const transaction = await prisma.$transaction(async (prismaTx) => {
-        try {
-          // 1. Create message in PostgreSQL (metadata)
-          const pgMessage = await prismaTx.messageMetadata.create({
-            data: {
-              conversation: { connect: { id: conversationId } },
-              sender: { connect: { id: senderId } },
-              status: "SENT",
-              sentAt: new Date(),
-            },
-          });
+  console.log("<============> \n Take Message ", content, "\n<============>");
 
-          // 2. Create in MongoDB (rich content)
-          const mongoMessage = new Message({
-            messageId: pgMessage.id,
-            conversationId,
-            senderId,
-            content,
-            attachments,
-            status: "sent",
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
+  const prismaTx = prisma;
 
-          await mongoMessage.save();
+  try {
+    const sender = await prismaTx.user.findUnique({ where: { id: senderId } });
+    const receiver = await prismaTx.user.findUnique({
+      where: { id: receiverId },
+    });
+    if (!sender) {
+      throw new Error("Sender does not exist");
+    }
+    if (!receiver) {
+      throw new Error("Reciver not Found");
+    }
+    // 🔹 If no conversationId provided, create one
+    if (!conversationId) {
+      const newConversation = await prismaTx.conversation.create({
+        data: {
+          participants: {
+            create: [{ userId: senderId }],
+          },
+        },
+      });
+      conversationId = newConversation.id;
+      console.log(
+        "\n \n 🔹 New conversation created:",
+        conversationId,
+        "\n \n"
+      );
+    }
 
-          // 3. Update conversation cache
-          await ConversationCache.findOneAndUpdate(
-            { conversationId },
-            {
-              $set: {
-                updatedAt: new Date(),
-                lastMessage: {
-                  messageId: pgMessage.id,
-                  senderId,
-                  content:
-                    content.text ||
-                    (attachments.length > 0 ? "[Attachment]" : ""),
-                  timestamp: new Date(),
-                },
-              },
-            },
-            { upsert: true, new: true }
-          );
-
-          // Return the complete message payload
-          return {
-            ...mongoMessage.toObject(),
-            pgId: pgMessage.id,
-            pgCreatedAt: pgMessage.sentAt,
-            pgUpdatedAt: pgMessage.sentAt,
-          };
-        } catch (error) {
-          logger.error("Message creation failed:", {
-            error: error.message,
-            stack: error.stack,
-            senderId,
-            conversationId,
-          });
-          throw error; // This will trigger transaction rollback
-        }
+    // 🔄 Begin transactional logic
+    const transaction = await prismaTx.$transaction(async (tx) => {
+      // 1. Save metadata in PostgreSQL
+      const pgMessage = await tx.messageMetadata.create({
+        data: {
+          conversation: { connect: { id: conversationId } },
+          sender: { connect: { id: senderId } },
+          receiver: { connect: { id: receiverId } },
+          status: "SENT",
+          sentAt: new Date(),
+        },
       });
 
-      // 4. Publish to Redis only after successful DB operations
-      await redis.publish(
-        `chat:${conversationId}`,
-        JSON.stringify({
-          event: ChatEvents.NEW_MESSAGE,
-          payload: transaction, // Use the transaction result
-        })
+      logger.debug("PostgreSQL message created", { pgMessage });
+
+      // 2. Save content in MongoDB
+      const mongoMessage = new Message({
+        messageId: pgMessage.id,
+        conversationId,
+        senderId,
+        receiverId,
+        content,
+        attachments,
+        status: "sent",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const savedMongoMsg = await mongoMessage.save();
+      // logger.debug("MongoDB message saved", { savedMongoMsg });
+      // 2.1 Update PostgreSQL messageMetadata with MongoDB _id
+      await tx.messageMetadata.update({
+        where: { id: pgMessage.id },
+        data: { mongoId: savedMongoMsg._id },
+      });
+      // 3. Update conversation cache
+      await ConversationCache.findOneAndUpdate(
+        { conversationId },
+        {
+          $set: {
+            updatedAt: new Date(),
+            lastMessage: {
+              messageId: pgMessage.id,
+              senderId,
+              content:
+                content.text || (attachments.length > 0 ? "[Attachment]" : ""),
+              timestamp: new Date(),
+            },
+          },
+        },
+        { upsert: true, new: true }
+      );
+      console.log("End Result", {
+        ...savedMongoMsg.toObject(),
+        pgId: pgMessage.id,
+        pgCreatedAt: pgMessage.sentAt,
+        pgUpdatedAt: pgMessage.sentAt,
+      });
+      return {
+        ...savedMongoMsg.toObject(),
+        pgId: pgMessage.id,
+        pgCreatedAt: pgMessage.sentAt,
+        pgUpdatedAt: pgMessage.sentAt,
+      };
+    });
+
+    // 4. Publish message to chat channel
+    await redis.publish(
+      `chat:${conversationId}`,
+      JSON.stringify({
+        event: ChatEvents.NEW_MESSAGE,
+        payload: transaction,
+      })
+    );
+
+    // 5. Notify other participants
+    const participants = await prisma.conversationParticipant.findMany({
+      where: { conversationId },
+      select: { userId: true },
+    });
+
+    const notificationPromises = participants
+      .filter(({ userId }) => userId !== senderId)
+      .map(({ userId }) =>
+        redis.publish(
+          `user:${userId}:notifications`,
+          JSON.stringify({
+            event: "NEW_CHAT_MESSAGE",
+            payload: {
+              conversationId,
+              messageId: transaction.pgId,
+              senderId,
+              preview:
+                transaction.content?.text?.substring(0, 100) || "[Attachment]",
+              timestamp: new Date().toISOString(),
+            },
+          })
+        )
       );
 
-      // 5. Notify participants
-      const participants = await prisma.conversationParticipant.findMany({
-        where: { conversationId },
-        select: { userId: true },
-      });
-
-      // Prepare notification promises
-      const notificationPromises = participants
-        .filter(({ userId }) => userId !== senderId)
-        .map(({ userId }) =>
-          redis.publish(
-            `user:${userId}:notifications`,
-            JSON.stringify({
-              event: "NEW_CHAT_MESSAGE",
-              payload: {
-                conversationId,
-                messageId: transaction.pgId,
-                senderId,
-                preview:
-                  transaction.content.text?.substring(0, 100) || "[Attachment]",
-                timestamp: new Date().toISOString(),
-              },
-            })
-          )
-        );
-
-      await Promise.all(notificationPromises);
-    },
-    3,
-    100
-  );
+    await Promise.all(notificationPromises);
+  } catch (error) {
+    logger.error("Message creation failed:", {
+      error: error.message,
+      stack: error.stack,
+      senderId,
+      conversationId,
+    });
+    throw error;
+  }
 }
 
 async function handleMessageDelivered(userId, { messageIds }) {
-  // Update both databases
-  await Promise.all([
-    prisma.messageMetadata.updateMany({
-      where: { id: { in: messageIds }, status: "SENT" },
-      data: { status: "DELIVERED" },
-    }),
-    Message.updateMany(
-      { messageId: { $in: messageIds }, status: "sent" },
-      { $set: { status: "delivered" } }
-    ),
-  ]);
+  try {
+    // 1. Validate message IDs are proper UUIDs
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const invalidIds = messageIds.filter((id) => !uuidRegex.test(id));
 
-  // Notify senders
-  const messages = await Message.find({ messageId: { $in: messageIds } });
-  const uniqueSenders = [...new Set(messages.map((m) => m.senderId))];
+    if (invalidIds.length > 0) {
+      throw new Error(
+        `Invalid message IDs: ${invalidIds.join(", ")}. Expected UUID format.`
+      );
+    }
 
-  await Promise.all(
-    uniqueSenders.map((senderId) =>
-      redis.publish(
-        `user:${senderId}:messages`,
-        JSON.stringify({
-          event: ChatEvents.MESSAGES_DELIVERED,
-          payload: { messageIds, confirmedBy: userId },
-        })
+    // 2. Update both databases with transaction safety
+    const [pgResult, mongoResult] = await Promise.all([
+      // PostgreSQL update
+      prisma.messageMetadata.updateMany({
+        where: {
+          id: { in: messageIds },
+          status: "SENT",
+        },
+        data: {
+          status: "DELIVERED",
+          deliveries: {
+            updateMany: {
+              where: { userId },
+              data: { status: "DELIVERED", receivedAt: new Date() },
+            },
+          },
+        },
+      }),
+
+      // MongoDB update
+      Message.updateMany(
+        {
+          messageId: { $in: messageIds },
+          status: "sent",
+        },
+        {
+          $set: {
+            status: "delivered",
+            "deliveries.$[elem].status": "delivered",
+            "deliveries.$[elem].receivedAt": new Date(),
+          },
+        },
+        {
+          arrayFilters: [{ "elem.userId": userId }],
+        }
+      ),
+    ]);
+
+    // 3. Verify updates were successful
+    if (pgResult.count === 0 || mongoResult.modifiedCount === 0) {
+      throw new Error(
+        "No messages were updated. Check if message IDs exist and status is 'SENT'."
+      );
+    }
+
+    // 4. Notify senders
+    const messages = await Message.find({
+      messageId: { $in: messageIds },
+    }).select("senderId conversationId");
+
+    const uniqueSenders = [...new Set(messages.map((m) => m.senderId))];
+
+    await Promise.all(
+      uniqueSenders.map((senderId) =>
+        redis.publish(
+          `user:${senderId}:messages`,
+          JSON.stringify({
+            event: ChatEvents.MESSAGES_DELIVERED,
+            payload: {
+              messageIds,
+              confirmedBy: userId,
+              conversationId: messages.find((m) => m.senderId === senderId)
+                ?.conversationId,
+            },
+          })
+        )
       )
-    )
-  );
+    );
+
+    logger.info(
+      `Delivered status updated for messages: ${messageIds.join(", ")}`
+    );
+    return {
+      success: true,
+      pgCount: pgResult.count,
+      mongoCount: mongoResult.modifiedCount,
+    };
+  } catch (error) {
+    logger.error("Failed to update delivery status", {
+      error: error.message,
+      messageIds,
+      userId,
+      stack: error.stack,
+    });
+    throw error;
+  }
 }
 
 async function handleTypingIndicator(userId, { conversationId, isTyping }) {

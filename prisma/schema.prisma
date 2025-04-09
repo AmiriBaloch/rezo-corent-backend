@@ -112,7 +112,8 @@ model User {
   payments            Payment[]
   reviews             Review[]
   conversations       ConversationParticipant[]
-  sentMessages        MessageMetadata[]
+  sentMessages        MessageMetadata[]         @relation("SenderToMessage")
+  receivedMessages    MessageMetadata[]         @relation("ReceiverToMessage")
 
   @@index([email, isActive])
   @@index([username, isActive])
@@ -214,7 +215,7 @@ model Profile {
 model Session {
   id           String   @id @default(uuid()) @db.Uuid
   userId       String   @db.Uuid
-  sessionToken String   @unique @map("session_token") @db.VarChar(512)
+  sessionToken String   @unique @map("session_token") @db.VarChar(12000)
   refreshToken String   @unique @map("refresh_token") @db.VarChar(512)
   deviceInfo   String?  @map("device_info") @db.VarChar(255)
   ipAddress    String?  @map("ip_address") @db.VarChar(45)
@@ -550,19 +551,24 @@ model ConversationParticipant {
 }
 
 model MessageMetadata {
-  id             String            @id @default(uuid()) @db.Uuid
-  conversation   Conversation      @relation(fields: [conversationId], references: [id])
-  conversationId String            @map("conversation_id")
-  sender         User              @relation(fields: [senderId], references: [id])
-  senderId       String            @map("sender_id") @db.Uuid // Ensure this is a UUID
-  sentAt         DateTime          @default(now()) @map("sent_at")
-  mongoId        String            @map("mongo_id") // Reference to MongoDB document
-  status         MessageStatus     @default(SENT)
-  deliveries     DeliveryReceipt[]
+  id             String       @id @default(uuid()) @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String       @map("conversation_id")
+
+  sender     User   @relation("SenderToMessage", fields: [senderId], references: [id])
+  senderId   String @map("sender_id") @db.Uuid
+  receiver   User   @relation("ReceiverToMessage", fields: [receiverId], references: [id])
+  receiverId String @map("receiver_id") @db.Uuid
+
+  sentAt     DateTime          @default(now()) @map("sent_at")
+  mongoId    String?           @map("mongo_id")
+  status     MessageStatus     @default(SENT)
+  deliveries DeliveryReceipt[]
 
   // Indexes
   @@index([conversationId, sentAt])
   @@index([senderId])
+  @@index([receiverId])
   @@map("message_metadata")
 }
 

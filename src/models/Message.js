@@ -51,7 +51,11 @@ const messageSchema = new Schema(
       required: true,
       index: true,
     },
-
+    receiverId: {
+      type: String,
+      required: true,
+      index: true,
+    },
     content: {
       text: String,
       // Rich content support

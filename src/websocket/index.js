@@ -10,9 +10,10 @@ import { UserEvents } from "./events.js";
 import session from "express-session";
 import sessionConfig, { sessionStore } from "../config/session.js";
 import { parse } from "url";
-import { parse as parseCookie } from "cookie";
+// import { parse as parseCookie } from "cookie";
+import { verifyToken } from "../utils/generateToken.js";
 import http from "http";
-// Track connected users (userId -> WebSocket instance)
+import config from "../config/env.js";
 const connectedUsers = new Map();
 
 let wss;
@@ -45,23 +46,31 @@ export const setupWebSocket = (server) => {
         socket.destroy();
         return;
       }
-
       // Get the session cookie
-      const cookies = parseCookie(request.headers.cookie || "");
-      let sessionId = cookies["connect.sid"];
-      
-      if (!sessionId) {
-        logger.debug("No session cookie found");
+      const token = request.headers["authorization"]?.split(" ")[1];
+      // let sessionId = cookies["connect.sid"];
+
+      if (!token) {
+        logger.debug("No session token found");
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
       }
-      
-      // Extract session ID from signed cookie format
-      if (sessionId.startsWith("s:")) {
-        sessionId = sessionId.substring(2, sessionId.indexOf("."));
+      let user;
+      try {
+        user = verifyToken(token, config.get("jwtSecret"));
+      } catch (error) {
+        logger.debug("Invalid token:", error);
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
       }
-      
+      const userId = user.sub;
+      // Extract session ID from signed cookie format
+      // if (sessionId.startsWith("s:")) {
+      //   sessionId = sessionId.substring(2, sessionId.indexOf("."));
+      // }
+
       // Verify we have a valid session ID format
       // if (!/^[a-fA-F0-9]{24}$/.test(sessionId)) {
       //   logger.debug(`Invalid session ID format: ${sessionId}`);
@@ -72,65 +81,64 @@ export const setupWebSocket = (server) => {
 
       // Get session from Redis using the correct key pattern
       // Note: This should match your express-session Redis store configuration
-      const sessionKey = `session:${sessionId}`; // Common default pattern
-      const sessionData = await redis.get(sessionKey);
+      // const sessionKey = `session:${sessionId}`; // Common default pattern
+      // const sessionData = await redis.get(sessionKey);
 
-      if (!sessionData) {
-        logger.debug(`Session not found in Redis for key: ${sessionKey}`);
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+      // if (!sessionData) {
+      //   logger.debug(`Session not found in Redis for key: ${sessionKey}`);
+      //   socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      //   socket.destroy();
+      //   return;
+      // }
 
-      // Parse the session data
-      let parsedSession;
-      try {
-        parsedSession = JSON.parse(sessionData);
-      } catch (err) {
-        logger.error("Failed to parse session data:", err);
-        socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+      // // Parse the session data
+      // let parsedSession;
+      // try {
+      //   parsedSession = JSON.parse(sessionData);
+      // } catch (err) {
+      //   logger.error("Failed to parse session data:", err);
+      //   socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+      //   socket.destroy();
+      //   return;
+      // }
 
-      // Verify user exists in session
-      if (!parsedSession.userId) {
-        logger.debug("Session found but no userId in session data");
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+      // // Verify user exists in session
+      // if (!parsedSession.userId) {
+      //   logger.debug("Session found but no userId in session data");
+      //   socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      //   socket.destroy();
+      //   return;
+      // }
 
-      // Create fake request/response for session middleware
-      const fakeReq = new http.IncomingMessage(socket);
-      Object.assign(fakeReq, {
-        url: request.url,
-        headers: request.headers,
-        connection: socket,
-        sessionID: sessionId,
-        sessionStore: sessionStore,
-      });
+      // // Create fake request/response for session middleware
+      // const fakeReq = new http.IncomingMessage(socket);
+      // Object.assign(fakeReq, {
+      //   url: request.url,
+      //   headers: request.headers,
+      //   connection: socket,
+      //   sessionID: sessionId,
+      //   sessionStore: sessionStore,
+      // });
 
-      const fakeRes = new http.ServerResponse(fakeReq);
+      // const fakeRes = new http.ServerResponse(fakeReq);
 
-      // Create session instance
-      await new Promise((resolve, reject) => {
-        wsSessionMiddleware(fakeReq, fakeRes, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-      if (!fakeReq.session || !parsedSession.userId) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-  
- 
+      // // Create session instance
+      // await new Promise((resolve, reject) => {
+      //   wsSessionMiddleware(fakeReq, fakeRes, (err) => {
+      //     if (err) reject(err);
+      //     else resolve();
+      //   });
+      // });
+      // if (!fakeReq.session || !parsedSession.userId) {
+      //   socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      //   socket.destroy();
+      //   return;
+      // }
+
       // Proceed with upgrade
       wss.handleUpgrade(request, socket, head, (ws) => {
-        ws.user = parsedSession.userId;
-        ws.session = fakeReq.session;
+        ws.user = userId;
+        // ws.session = fakeReq.session;
         wss.emit("connection", ws, request);
       });
     } catch (error) {
