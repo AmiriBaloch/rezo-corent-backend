@@ -14,6 +14,7 @@ import {
   ValidationError,
   AuthError,
 } from "../../utils/apiError.js";
+import redis from "../../config/redis.js";
 
 const PASSWORD_REGEX =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
@@ -129,6 +130,34 @@ export const verifyEmailService = async (code, context) => {
 };
 
 export const loginUser = async (email, password, context) => {
+  const rateLimitKey = `rate_limit:login:${email}`;
+
+ 
+    // Get current attempts (returns null if key doesn't exist)
+    const currentAttempts = await redis.get(rateLimitKey);
+    const attempts = currentAttempts ? parseInt(currentAttempts, 10) : 0;
+
+    if (attempts >= config.get("login.maxAttempts")) {
+      const ttl = await redis.ttl(rateLimitKey);
+      if (ttl < 0) {
+        // Ensure banTime is a valid positive integer
+        const banTime = parseInt(config.get("login.banTime"), 10);
+        if (isNaN(banTime) || banTime <= 0) {
+          throw new Error("Invalid banTime configuration");
+        }
+        await redis.expire(rateLimitKey, banTime);
+      }
+      throw new AuthError("Too many attempts. Try again later.");
+    }
+
+    // Increment attempts
+    await redis.incr(rateLimitKey);
+    if (attempts === 0) {
+      const banTime = parseInt(config.get("login.banTime"), 10);
+      await redis.expire(rateLimitKey, banTime);
+    }
+
+
   const user = await prisma.user.findUnique({
     where: { email },
     select: {
@@ -189,7 +218,34 @@ export const loginUser = async (email, password, context) => {
     },
     select: { id: true },
   });
+  const sessionKey = `session:${newSession.id}`;
+  const sessionExpiry = new Date(
+    Date.now() + config.get("jwtRefreshExpiration") * 1000
+  );
+  const sessionData = {
+    userId: user.id,
+    email,
+    sessionToken: accessToken,
+    refreshToken,
+    ipAddress: context.ipAddress,
+    deviceInfo: context.deviceInfo,
+  };
 
+  const sessionExpirySeconds = parseInt(config.get("jwtRefreshExpiration"), 10);
+  if (isNaN(sessionExpirySeconds) || sessionExpirySeconds <= 0) {
+    throw new Error("Invalid session expiration configuration");
+  }
+
+  // const sessionKey = `session:${newSession.id}`;
+  await redis.setex(
+    sessionKey,
+    sessionExpirySeconds,
+    JSON.stringify(sessionData)
+  );
+
+  // 3. Refresh token storage with integer validation
+  const refreshExpiry = parseInt(config.get("jwtRefreshExpiration"), 10);
+  await redis.setex(`refresh:${refreshToken}`, refreshExpiry, sessionKey);
   return {
     accessToken,
     refreshToken,
@@ -255,6 +311,16 @@ export const refreshToken = async (token, context) => {
 };
 
 export const logoutUser = async (userId, sessionId) => {
+  // Delete session from Redis
+  await redis.del(`session:${sessionId}`);
+  // await redis.del(`refresh:${refreshToken}`);
+
+  // // Optional: Add to blacklist if using JWT
+  // await redis.setex(
+  //   `blacklist:${refreshToken}`,
+  //   config.get("jwtRefreshExpiration"),
+  //   "logged_out"
+  // );
   await prisma.session.deleteMany({
     where: { userId, id: sessionId },
   });

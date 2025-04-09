@@ -63,7 +63,7 @@ const config = convict({
   redisUrl: {
     doc: "Redis connection URL",
     format: String,
-    default: "redis://127.0.0.1:6379",
+    default: "",
     env: "REDIS_URL",
   },
   frontendUrl: {
@@ -152,6 +152,20 @@ const config = convict({
     default: "http://localhost:3000/",
     env: "FRONTEND_SUCCESS_URL",
   },
+  login:{
+    maxAttempts: {
+      doc: "Max login attempts",
+      format: Number,
+      default: 5,
+      env: "LOGIN_MAX_ATTEMPTS",
+    },
+    banTime: {
+      doc: "Lock time in milliseconds",
+      format: Number,
+      default: 300, // 1 minute
+      env: "LOGIN_LOCK_TIME",
+    },
+  }
 });
 
 // Perform validation
