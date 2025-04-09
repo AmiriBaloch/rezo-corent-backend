@@ -12,6 +12,8 @@ const port = parseInt(parsedUrl.port, 10);
 const redis = new Redis(redisUrl, {
   retryStrategy: (times) => Math.min(times * 100, 3000),
   tls: parsedUrl.protocol === "rediss:" ? {} : undefined, // Enable TLS for Redis Cloud
+  maxRetriesPerRequest: null,
+  enableOfflineQueue: true,
 });
 
 // Redis event listeners

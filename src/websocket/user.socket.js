@@ -71,22 +71,14 @@ async function trackUserPresence(userId, isOnline, socket) {
 function subscribeToUserChannels(socket, userId) {
   // Create a dedicated Redis subscriber for this socket
   const subscriber = redis.duplicate();
-  subscriber.connect().then(() => {
-    // Subscribe to user-specific channels
-    subscriber.subscribe(`user:${userId}:presence`, (message) => {
-      socket.emit('presence_update', JSON.parse(message));
-    });
-
-    subscriber.subscribe(`user:${userId}:typing`, (message) => {
-      socket.emit('typing_indicator', JSON.parse(message));
-    });
-
-    // Clean up on disconnect
-    socket.on('disconnect', () => {
-      subscriber.unsubscribe();
-      subscriber.quit();
-    });
+  subscriber.subscribe(`user:${userId}:presence`, (message) => {
+    socket.emit('presence_update', JSON.parse(message));
   });
+
+  subscriber.subscribe(`user:${userId}:typing`, (message) => {
+    socket.emit('typing_indicator', JSON.parse(message));
+  });
+  
 }
 
 // ========== Event Handlers ==========

@@ -9,6 +9,7 @@ import propertyRoutes from "./properties/routes.js";
 import messageRoutes from "./message/routes.js";
 import profileRoutes from "./profile/routes.js";
 import bookingRoutes from "./bookings/routes.js";
+import redis from "../config/redis.js";
 const routes = Router();
 routes.use("/auth", authRoutes);
 routes.use("/roles", rolesRoutes);
@@ -32,6 +33,19 @@ routes.get(
     });
   }
 );
+routes.get('/debug-session', async (req, res) => {
+  if (!req.sessionID) return res.status(400).send('No session');
+  
+  const sessionKey = `sess:${req.sessionID}`;
+  const sessionData = await redis.get(sessionKey);
+  
+  res.json({
+    sessionID: req.sessionID,
+    sessionKey,
+    exists: !!sessionData,
+    data: sessionData ? JSON.parse(sessionData) : null
+  });
+});
 // routes.get("/dashboard", (req, res) => {
 //   res.json({ message: "Hello World! Successfully accessed this route 🎉" });
 // });

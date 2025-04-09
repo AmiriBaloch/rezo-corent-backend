@@ -17,7 +17,7 @@ export function initNotificationSocket(socket, io, connectedUsers) {
   const subscribeToNotifications = async () => {
     try {
       const subscriber = redis.duplicate();
-      await subscriber.connect();
+      // await subscriber.connect();
       
       // Subscribe to user's personal notification channel
       await subscriber.subscribe(`user:${userId}:notifications`, (message) => {

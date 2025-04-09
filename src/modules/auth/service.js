@@ -235,6 +235,7 @@ export const loginUser = async (email, password, context) => {
   if (isNaN(sessionExpirySeconds) || sessionExpirySeconds <= 0) {
     throw new Error("Invalid session expiration configuration");
   }
+  
 
   // const sessionKey = `session:${newSession.id}`;
   await redis.setex(

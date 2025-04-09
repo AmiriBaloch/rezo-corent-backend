@@ -6,7 +6,7 @@ import config from "./env.js";
 export const sessionStore = new RedisStore({
   client: redis,
   ttl: 86400,
-  prefix: "sess:"
+  prefix: "session:"
 });
 const sessionConfig = {
   store: sessionStore,
