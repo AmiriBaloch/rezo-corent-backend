@@ -145,7 +145,7 @@ async function main() {
           data: {
             roleId: ownerRole.id,
             permissionId: permission.id,
-            conditions: { ownerId: "${user.id}" }, // ABAC condition
+            conditions: { ownerId: `${user.id}` }, // ABAC condition
           },
         })
       ),
@@ -156,7 +156,7 @@ async function main() {
           data: {
             roleId: tenantRole.id,
             permissionId: permission.id,
-            conditions: { tenantId: "${user.id}" }, // ABAC condition
+            conditions: { tenantId: `${user.id}` }, // ABAC condition
           },
         })
       ),

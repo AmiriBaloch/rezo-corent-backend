@@ -37,6 +37,19 @@ export const registerUser = async ({ email, password }) => {
   // Hash password and OTP
   const hashedPassword = await bcrypt.hash(password, 12);
   const otp = generateOTP();
+  // Create new user
+  const defaultRole = await prisma.role.findFirst({
+    where: { isDefault: true },
+  });
+  const SystemAdmin = await prisma.user.findFirst({
+    where: { email: "superadmin@corent.com" },
+  });
+
+  if (!defaultRole) {
+    throw new Error("Default role not found in database");
+  }
+  const minutesFromNow = (minutes) =>
+    new Date(Date.now() + minutes * 60 * 1000);
 
   // Create user with OTP verification
   const user = await prisma.user.create({
@@ -47,11 +60,22 @@ export const registerUser = async ({ email, password }) => {
         create: {
           type: "EMAIL_VERIFICATION",
           code: otp,
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+          expiresAt: minutesFromNow(15),
+        },
+      },
+      roles: {
+        create: {
+          roleId: defaultRole.id,
+          assignedBy: SystemAdmin.id, // Using a valid UUID
         },
       },
     },
-    select: { id: true, email: true, createdAt: true },
+    select: {
+      id: true,
+      email: true,
+      createdAt: true,
+      roles: { select: { role: { select: { isDefault: true } } } },
+    },
   });
 
   // Send verification email
@@ -79,8 +103,17 @@ export const verifyEmailService = async (code, context) => {
     },
     include: { user: true },
   });
-
   if (!verification) {
+    await prisma.oTPVerification.updateMany({
+      where: {
+        code,
+        type: "EMAIL_VERIFICATION",
+      },
+      data: {
+        attempts: { increment: 1 },
+      },
+    });
+
     throw new ValidationError("Invalid or expired verification code");
   }
 
@@ -98,14 +131,13 @@ export const verifyEmailService = async (code, context) => {
       id: true,
       email: true,
       isVerified: true,
-      roles: true,
+      roles: { select: { role: { select: { name: true } } } },
     },
   });
-
   // Create session
   const [accessToken, refreshToken] = await Promise.all([
-    generateAccessToken(user.id, roles),
-    generateRefreshToken(user.id, roles),
+    generateAccessToken(user.id, user.roles),
+    generateRefreshToken(user.id, user.roles),
   ]);
 
   await prisma.session.create({
@@ -167,7 +199,6 @@ export const loginUser = async (email, password, context) => {
       roles: { select: { role: { select: { name: true } } } },
     },
   });
-  // console.log(roles, "user found")
   if (!user) {
     logger.warn(`Login attempt for non-existent user: ${email}`);
     throw new AuthError("Invalid credentials");

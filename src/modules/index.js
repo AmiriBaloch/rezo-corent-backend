@@ -22,7 +22,12 @@ routes.use("/conversations", messageRoutes);
 routes.use("/profile", profileRoutes);
 routes.use("/bookings", bookingRoutes);
 routes.get("/csrf-token", (req, res) => {
-  res.json({ csrfToken: req.csrfToken() });
+  res.cookie('CSRF-TOKEN', token, {
+    httpOnly: false, // So frontend JS can read it
+    sameSite: 'lax',
+    secure: false, // true in production
+  });
+  res.json({ csrfToken: token });
 });
 // routes.get(
 //   "/protected",
