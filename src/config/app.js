@@ -71,7 +71,7 @@ app.use(sessionMiddleware);
 // temprarily disabled for local development
 app.use(
   cors({
-    origin: ["rezo.com.pk"], // Update for production security
+    origin: ["*","rezo.com.pk"], // Update for production security
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })
