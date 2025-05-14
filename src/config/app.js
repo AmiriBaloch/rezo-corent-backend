@@ -69,13 +69,23 @@ app.use(sessionMiddleware);
 // CORS Configuration
 // ========================
 // temprarily disabled for local development
+const allowedOrigins = ["http://localhost:3000", "https://rezo.com.pk", "*"];
+
 app.use(
   cors({
-    origin: ["*","rezo.com.pk"], // Update for production security
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })
 );
+
+app.options("*", cors());
 
 //
 //=====================================
