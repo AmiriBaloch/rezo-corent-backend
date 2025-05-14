@@ -71,12 +71,12 @@ app.use(sessionMiddleware);
 // temprarily disabled for local development
 app.use(
   cors({
-    origin: ["*"], // Update for production security
+    origin: "*", // Update for production security
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: false,
   })
 );
-
+app.options("*", cors());
 //
 //=====================================
 // Initialize Casbin on startup
