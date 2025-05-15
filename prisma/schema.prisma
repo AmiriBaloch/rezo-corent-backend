@@ -331,36 +331,46 @@ model AuditLog {
 // --------------------------------------------------
 // Property Management
 // --------------------------------------------------
+enum PropertyListingType {
+  RENT
+  SALE
+}
+
 model Property {
-  id                 String         @id @default(uuid()) @db.Uuid
-  ownerId            String         @db.Uuid
-  title              String         @db.VarChar(120)
+  id                 String              @id @default(uuid()) @db.Uuid
+  ownerId            String              @db.Uuid
+  listingType        PropertyListingType
+  title              String              @db.VarChar(120)
   description        String
-  basePrice          Decimal        @map("base_price") @db.Money
-  currency           String         @default("USD") @db.VarChar(3)
-  status             PropertyStatus @default(PENDING)
+  basePrice          Decimal             @map("base_price") @db.Money
+  currency           String              @default("USD") @db.VarChar(3)
+  status             PropertyStatus      @default(PENDING)
   location           Json // { lat: Decimal, lng: Decimal, plusAccuracy: Float? }
-  address            String         @db.VarChar(255)
-  maxGuests          Int            @map("max_guests")
+  address            String              @db.VarChar(255)
+  maxGuests          Int                 @map("max_guests")
   availability       Availability[]
   bookings           Booking[]
   amenities          Amenity[]
   roomSpecs          RoomSpec[]
   houseRules         Json? // Flexible rule structure
-  photos             String[]       @default([]) // URLs to high-res images
-  virtualTours       String[]       @default([]) // URLs to 360 tours
-  minStay            Int            @default(1) @map("min_stay")
-  maxStay            Int?           @map("max_stay")
-  createdAt          DateTime       @default(now()) @map("created_at")
-  updatedAt          DateTime       @updatedAt @map("updated_at")
-  deletedAt          DateTime?      @map("deleted_at")
+  photos             String[]            @default([]) // URLs to high-res images
+  virtualTours       String[]            @default([]) // URLs to 360 tours
+  minStay            Int                 @default(1) @map("min_stay")
+  maxStay            Int?                @map("max_stay")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  deletedAt          DateTime?           @map("deleted_at")
   cancellationPolicy String?
-  PropertyType       String?        @map("property_type") @db.VarChar(50) // e.g., "Apartment", "House", etc.
-  sizeSqft           Int?           @map("size_sqft") // Total size in square feet
+  PropertyType       String?             @map("property_type") @db.VarChar(50) // e.g., "Apartment", "House", etc.
+  sizeSqft           Int?                @map("size_sqft") // Total size in square feet
   // Relationships
-  owner              User           @relation(fields: [ownerId], references: [id])
+  owner              User                @relation(fields: [ownerId], references: [id])
   reviews            Review[]
   payments           Payment[]
+  rentalDetails      RentalDetails?
+  saleDetails        SaleDetails?
+
+  // Assertion to ensure proper type matching
 
   @@index([ownerId])
   @@index([status])
@@ -413,6 +423,40 @@ model Availability {
   @@index([isAvailable])
   @@index([bookingId])
   @@map("property_availability")
+}
+
+model RentalDetails {
+  id         String   @id @default(uuid()) @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id])
+  propertyId String   @unique @db.Uuid
+
+  minStay           Int      @default(1) @map("min_stay")
+  maxStay           Int?     @map("max_stay")
+  securityDeposit   Decimal? @map("security_deposit") @db.Money
+  utilitiesIncluded Boolean  @default(false) @map("utilities_included")
+  leaseTermMonths   Int?     @map("lease_term_months")
+  availableFrom     DateTime @map("available_from")
+  monthlyRate       Decimal  @map("monthly_rate") @db.Money
+  weeklyRate        Decimal? @map("weekly_rate") @db.Money
+  dailyRate         Decimal? @map("daily_rate") @db.Money
+
+  @@map("rental_details")
+}
+
+model SaleDetails {
+  id         String   @id @default(uuid()) @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id])
+  propertyId String   @unique @db.Uuid
+
+  salePrice       Decimal  @map("sale_price") @db.Money
+  priceNegotiable Boolean  @default(false) @map("price_negotiable")
+  propertyTaxRate Decimal? @map("property_tax_rate")
+  hoaFee          Decimal? @map("hoa_fee") @db.Money
+  yearBuilt       Int?     @map("year_built")
+  lastRenovation  Int?     @map("last_renovation")
+  ownershipType   String?  @map("ownership_type") @db.VarChar(50)
+
+  @@map("sale_details")
 }
 
 // --------------------------------------------------
