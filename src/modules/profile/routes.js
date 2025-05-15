@@ -6,6 +6,7 @@ import { uploadProfilePicture } from "../../middlewares/upload.js";
 const router = express.Router();
 
 // Apply authentication to all routes
+router.get("/:id", profileController.ownergetProfile);
 router.use(authenticateUser());
 
 // Profile CRUD

@@ -34,7 +34,34 @@ export const profileController = {
       });
     }
   },
+ async ownergetProfile(req, res) {
+    try {
+      const result = await ProfileService.getProfile(req.params.id);
 
+      if (result.profileExists === false) {
+        return res.status(200).json({
+          status: "success",
+          message: result.message,
+          data: {
+            user: result.user,
+            profile: null,
+            requiredFields: result.requiredFields,
+          },
+        });
+      }
+
+      res.json({
+        status: "success",
+        data: result,
+      });
+    } catch (error) {
+      console.error("Failed to fetch profile:", error);
+      res.status(500).json({
+        status: "error",
+        message: error.message || "Failed to retrieve profile",
+      });
+    }
+ },
   /**
    * Create or update profile
    * @param {Object} req - Express request
