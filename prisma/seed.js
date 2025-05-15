@@ -117,52 +117,7 @@ async function main() {
       ),
     ]);
 
-    // 3. Assign Permissions to Roles
-    await Promise.all([
-      // Super Admin gets wildcard
-      prisma.rolePermission.create({
-        data: {
-          roleId: superAdminRole.id,
-          permissionId: permissions[0].id,
-          conditions: {},
-        },
-      }),
-
-      // Admin gets management permissions
-      ...permissions.slice(1, 6).map((permission) =>
-        prisma.rolePermission.create({
-          data: {
-            roleId: adminRole.id,
-            permissionId: permission.id,
-            conditions: {},
-          },
-        })
-      ),
-
-      // Owner permissions
-      ...permissions.slice(6, 10).map((permission) =>
-        prisma.rolePermission.create({
-          data: {
-            roleId: ownerRole.id,
-            permissionId: permission.id,
-            conditions: { ownerId: `${user.id}` }, // ABAC condition
-          },
-        })
-      ),
-
-      // Tenant permissions
-      ...permissions.slice(10).map((permission) =>
-        prisma.rolePermission.create({
-          data: {
-            roleId: tenantRole.id,
-            permissionId: permission.id,
-            conditions: { tenantId: `${user.id}` }, // ABAC condition
-          },
-        })
-      ),
-    ]);
-
-    // 4. Create Users
+    // 3. Create Users FIRST (moved before permission assignments)
     const [superAdmin, admin, owner, tenant] = await Promise.all([
       // Super Admin
       prisma.user.upsert({
@@ -249,6 +204,51 @@ async function main() {
       }),
     ]);
 
+    // 4. Assign Permissions to Roles (now using the actual created users)
+    await Promise.all([
+      // Super Admin gets wildcard
+      prisma.rolePermission.create({
+        data: {
+          roleId: superAdminRole.id,
+          permissionId: permissions[0].id,
+          conditions: {},
+        },
+      }),
+
+      // Admin gets management permissions
+      ...permissions.slice(1, 6).map((permission) =>
+        prisma.rolePermission.create({
+          data: {
+            roleId: adminRole.id,
+            permissionId: permission.id,
+            conditions: {},
+          },
+        })
+      ),
+
+      // Owner permissions - using the actual owner.id
+      ...permissions.slice(6, 10).map((permission) =>
+        prisma.rolePermission.create({
+          data: {
+            roleId: ownerRole.id,
+            permissionId: permission.id,
+            conditions: { ownerId: `${owner.id}` }, // Fixed: using owner.id
+          },
+        })
+      ),
+
+      // Tenant permissions - using the actual tenant.id
+      ...permissions.slice(10).map((permission) =>
+        prisma.rolePermission.create({
+          data: {
+            roleId: tenantRole.id,
+            permissionId: permission.id,
+            conditions: { tenantId: `${tenant.id}` }, // Fixed: using tenant.id
+          },
+        })
+      ),
+    ]);
+
     // 5. Assign Roles to Users
     await prisma.userRole.createMany({
       data: [
@@ -292,17 +292,13 @@ async function main() {
         // Admin Policies
         { ptype: "g", v0: admin.id, v1: "admin" },
         { ptype: "p", v0: "admin", v1: "user", v2: "manage", v3: "*" },
-        { ptype: "p", v0: "admin", v1: "properties", v2: "manage", v3: "*" }, // Full management
+        { ptype: "p", v0: "admin", v1: "properties", v2: "manage", v3: "*" },
         { ptype: "p", v0: "admin", v1: "bookings", v2: "manage", v3: "*" },
         { ptype: "p", v0: "admin", v1: "payments", v2: "manage", v3: "*" },
         { ptype: "p", v0: "admin", v1: "reviews", v2: "manage", v3: "*" },
 
         // Owner Policies
-
-        // Owner Policies - Add explicit create permission
         { ptype: "p", v0: "owner", v1: "properties", v2: "create" },
-
-        // Keep the existing manage permission
         {
           ptype: "p",
           v0: "owner",
@@ -318,13 +314,6 @@ async function main() {
           v3: "${resource.ownerId} == ${user.id}",
         },
         { ptype: "g", v0: owner.id, v1: "owner" },
-        {
-          ptype: "p",
-          v0: "owner",
-          v1: "properties",
-          v2: "manage",
-          v3: "${resource.ownerId} == ${user.id}",
-        },
         {
           ptype: "p",
           v0: "owner",
