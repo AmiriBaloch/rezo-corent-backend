@@ -20,15 +20,12 @@ export class PropertyService {
    * Create new property with full transactional safety
    */
   static async createProperty(ownerId, propertyData) {
-    console.log(propertyData);
-
     try {
       const property = await prisma.$transaction(async (tx) => {
         const property = await tx.property.create({
           data: {
             ownerId,
             status: "PENDING",
-            listingType: propertyData.listingType,
             ...this.sanitizePropertyData(propertyData),
             photos: propertyData.photos || [],
             virtualTours: propertyData.virtualTours || [],
@@ -613,6 +610,8 @@ export class PropertyService {
       houseRules: data.houseRules,
       photos: data.photos || [],
       virtualTours: data.virtualTours || [],
+      sizeSqft: data.sizeSqft,
+      listingType: data.listingType,
     };
   }
 

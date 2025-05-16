@@ -25,6 +25,8 @@ export const propertySchema = Joi.object({
     "chalet",
     "studio",
     "loft",
+    "land",
+    "commercial",
     "duplex"
   ).optional(),
   maxGuests: Joi.number().integer().positive().required(),
@@ -37,6 +39,7 @@ export const propertySchema = Joi.object({
   }).required(),
   photos: Joi.array().items(Joi.string().uri()).optional(),
   virtualTours: Joi.array().items(Joi.string().uri()).optional(),
+  sizeSqft: Joi.number().positive().required(),
 });
 
 // Reusable validation function
