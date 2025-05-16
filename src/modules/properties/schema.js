@@ -4,10 +4,29 @@ import Joi from "joi";
 // Reusable validation schemas
 export const propertySchema = Joi.object({
   title: Joi.string().min(5).max(120).required(),
+  listings: Joi.string().valid("RENT", "SALE").required(),
   description: Joi.string().min(20).max(2000).required(),
   basePrice: Joi.number().positive().required(),
   currency: Joi.string().length(3).default("USD"),
   address: Joi.string().max(255).required(),
+  city: Joi.string().max(100).required(),
+  state: Joi.string().max(100).required(),
+  country: Joi.string().max(100).required(),
+  postalCode: Joi.string()
+    .pattern(/^[0-9]{5}(-[0-9]{4})?$/)
+    .required(),
+  propertyType: Joi.string().valid(
+    "apartment",
+    "house",
+    "condo",
+    "townhouse",
+    "villa",
+    "cabin",
+    "chalet",
+    "studio",
+    "loft",
+    "duplex"
+  ).optional(),
   maxGuests: Joi.number().integer().positive().required(),
   minStay: Joi.number().integer().positive().required(),
   maxStay: Joi.number().integer().positive().optional(),
@@ -55,13 +74,13 @@ export const suggestionsSchema = Joi.object({
 });
 
 export const reindexSchema = Joi.object({
-  propertyId: Joi.string().uuid({
-    version: [
-      'uuidv4',
-      'uuidv5'
-    ]
-  }).required().messages({
-    'string.guid': 'Invalid property ID format',
-    'any.required': 'Property ID is required'
-  })
+  propertyId: Joi.string()
+    .uuid({
+      version: ["uuidv4", "uuidv5"],
+    })
+    .required()
+    .messages({
+      "string.guid": "Invalid property ID format",
+      "any.required": "Property ID is required",
+    }),
 });

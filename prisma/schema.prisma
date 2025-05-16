@@ -339,14 +339,18 @@ enum PropertyListingType {
 model Property {
   id                 String              @id @default(uuid()) @db.Uuid
   ownerId            String              @db.Uuid
-  listingType        PropertyListingType
+  listingType        PropertyListingType @default(RENT)
   title              String              @db.VarChar(120)
   description        String
   basePrice          Decimal             @map("base_price") @db.Money
-  currency           String              @default("USD") @db.VarChar(3)
+  currency           String              @default("PKR") @db.VarChar(3)
   status             PropertyStatus      @default(PENDING)
   location           Json // { lat: Decimal, lng: Decimal, plusAccuracy: Float? }
   address            String              @db.VarChar(255)
+  city               String?              @db.VarChar(50)
+  state              String              @db.VarChar(50)
+  country            String              @db.VarChar(50) // ISO country code
+  postalCode         String              @map("postal_code") @db.VarChar(20)
   maxGuests          Int                 @map("max_guests")
   availability       Availability[]
   bookings           Booking[]

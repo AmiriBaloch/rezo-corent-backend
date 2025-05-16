@@ -20,6 +20,8 @@ export class PropertyService {
    * Create new property with full transactional safety
    */
   static async createProperty(ownerId, propertyData) {
+    console.log(propertyData);
+
     try {
       const property = await prisma.$transaction(async (tx) => {
         const property = await tx.property.create({
@@ -139,6 +141,18 @@ export class PropertyService {
           include: {
             amenities: { select: { id: true, name: true } },
             roomSpecs: { select: { type: true, count: true } },
+            owner: {
+              select: {
+                profile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    phone: true,
+                    avatarUrl: true,
+                  },
+                },
+              },
+            },
           },
           skip: (page - 1) * limit,
           take: limit,
@@ -588,6 +602,10 @@ export class PropertyService {
         parseInt(data.location.lng)
       ),
       address: data.address,
+      city: data.city,
+      state: data.state,
+      country: data.country,
+      postalCode: data.postalCode,
       maxGuests: data.maxGuests,
       minStay: data.minStay,
       maxStay: data.maxStay,
@@ -1087,7 +1105,7 @@ export class PropertyService {
           sizeSqft: true,
         },
       });
-  
+
       return roomSpecs;
     } catch (error) {
       this.handleDatabaseError(error, "Failed to fetch room specifications");
