@@ -28,6 +28,7 @@ export class PropertyService {
           data: {
             ownerId,
             status: "PENDING",
+            listingType: propertyData.listingType,
             ...this.sanitizePropertyData(propertyData),
             photos: propertyData.photos || [],
             virtualTours: propertyData.virtualTours || [],

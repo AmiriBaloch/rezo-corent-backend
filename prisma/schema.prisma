@@ -75,6 +75,11 @@ enum MessageStatus {
   FAILED
 }
 
+enum PropertyListingType {
+  RENT
+  SALE
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -331,10 +336,6 @@ model AuditLog {
 // --------------------------------------------------
 // Property Management
 // --------------------------------------------------
-enum PropertyListingType {
-  RENT
-  SALE
-}
 
 model Property {
   id                 String              @id @default(uuid()) @db.Uuid
@@ -347,7 +348,7 @@ model Property {
   status             PropertyStatus      @default(PENDING)
   location           Json // { lat: Decimal, lng: Decimal, plusAccuracy: Float? }
   address            String              @db.VarChar(255)
-  city               String?              @db.VarChar(50)
+  city               String?             @db.VarChar(50)
   state              String              @db.VarChar(50)
   country            String              @db.VarChar(50) // ISO country code
   postalCode         String              @map("postal_code") @db.VarChar(20)
