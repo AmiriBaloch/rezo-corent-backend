@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import prisma from "../../config/database.js";
 import { uploadToCloudinary } from "../../utils/fileStorage.js";
 import { profileSchema, profileUpdateSchema } from "./schema.js";
@@ -159,6 +160,7 @@ export class ProfileService {
    */
   static async searchProfiles(filters = {}, limit = 20, offset = 0) {
     // Validate filters
+    // console.log("Search filters ROle", filters.role);
     const validFilters = {};
     if (filters.name) {
       validFilters.OR = [
@@ -170,6 +172,19 @@ export class ProfileService {
       validFilters.city = { contains: filters.city, mode: "insensitive" };
     if (filters.country) validFilters.country = filters.country;
     if (filters.gender) validFilters.gender = filters.gender;
+    if (filters.role) {
+      validFilters.user = {
+        is: {
+          roles: {
+            some: {
+              role: {
+                name: filters.role, // e.g., "owner"
+              },
+            },
+          },
+        },
+      };
+    }
 
     return prisma.profile.findMany({
       where: validFilters,
@@ -186,6 +201,15 @@ export class ProfileService {
         user: {
           select: {
             username: true,
+            roles: {
+              select: {
+                role: {
+                  select: {
+                    name: true,
+                  },
+                },
+              },
+            },
           },
         },
       },

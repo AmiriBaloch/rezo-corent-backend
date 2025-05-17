@@ -34,7 +34,7 @@ export const profileController = {
       });
     }
   },
- async ownergetProfile(req, res) {
+  async ownergetProfile(req, res) {
     try {
       const result = await ProfileService.getProfile(req.params.id);
 
@@ -61,7 +61,7 @@ export const profileController = {
         message: error.message || "Failed to retrieve profile",
       });
     }
- },
+  },
   /**
    * Create or update profile
    * @param {Object} req - Express request

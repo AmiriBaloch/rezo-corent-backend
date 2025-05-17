@@ -11,8 +11,20 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+
 export const sendEmail = async (to, subject, html) => {
-  const info = await transporter.sendMail({
+  console.log("Sending email...");
+  console.log("Email config:", {
+    host: config.get("email.host"),
+    port: config.get("email.port"),
+    secure: config.get("email.secure"),
+    user: config.get("email.user"),
+    pass: config.get("email.pass"),
+    to,
+    subject,
+    html,
+  });
+  await transporter.sendMail({
     from: config.get("email.user"),
     to,
     subject,
