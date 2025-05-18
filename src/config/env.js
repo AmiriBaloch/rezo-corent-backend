@@ -86,7 +86,7 @@ const config = convict({
     env: "GOOGLE_CLIENT_SECRET",
     sensitive: true,
   },
-  googleCallbackURL: {
+  googleCallbackUrl: {
     doc: "Google OAuth callback URL",
     format: String,
     default: "http://localhost:3000/api/auth/google/callback",

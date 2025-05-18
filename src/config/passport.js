@@ -74,7 +74,7 @@ export default (passport) => {
       {
         clientID: config.get("googleClientId"),
         clientSecret: config.get("googleClientSecret"),
-        callbackURL: "http://localhost:3000/api/auth/google/callback",
+        callbackURL: config.get("googleCallbackUrl"),
         passReqToCallback: true,
         scope: ["profile", "email"],
       },
