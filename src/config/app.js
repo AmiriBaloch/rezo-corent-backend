@@ -40,7 +40,6 @@ app.use(
     },
   })
 );
-app.set('trust proxy', true);
 // ========================
 // Session Middleware
 // =========================
@@ -93,12 +92,18 @@ app.use(passport.session());
 // ========================
 // Rate Limiting
 // ========================
+app.set("trust proxy", true);
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // Limit each IP to 100 requests per window
+    trustProxy: 1, // Trust first proxy
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => {
+      // Use the first IP in X-Forwarded-For if present
+      return req.headers["x-forwarded-for"]?.split(",")[0] || req.ip;
+    },
     message: "Too many requests, please try again later.",
   })
 );
