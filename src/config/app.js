@@ -40,7 +40,7 @@ app.use(
     },
   })
 );
-
+app.set('trust proxy', true);
 // ========================
 // Session Middleware
 // =========================
