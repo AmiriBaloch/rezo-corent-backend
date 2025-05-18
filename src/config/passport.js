@@ -75,6 +75,7 @@ export default (passport) => {
         clientID: config.get("googleClientId"),
         clientSecret: config.get("googleClientSecret"),
         callbackURL: config.get("googleCallbackUrl"),
+        proxy: true,
         passReqToCallback: true,
         scope: ["profile", "email"],
       },
