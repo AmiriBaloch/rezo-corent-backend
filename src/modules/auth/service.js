@@ -230,6 +230,7 @@ export const loginUser = async (email, password, context) => {
   }
 
   // Create new session
+  const defultRole = user.roles[0].role.name
   const [accessToken, refreshToken] = await Promise.all([
     generateAccessToken(user.id, user.roles),
     generateRefreshToken(user.id),
@@ -274,6 +275,7 @@ export const loginUser = async (email, password, context) => {
   // 3. Refresh token storage with integer validation
   const refreshExpiry = parseInt(config.get("jwtRefreshExpiration"), 10);
   await redis.setex(`refresh:${refreshToken}`, refreshExpiry, sessionKey);
+  // console.log(user.roles.map((role) => role.role.name));
   return {
     accessToken,
     refreshToken,
@@ -284,8 +286,11 @@ export const loginUser = async (email, password, context) => {
         id: true,
         email: true,
         isVerified: true,
+       
       },
     }),
+    roles: user.roles.map((role) => role.role.name),
+    defaultRole: defultRole,
   };
 };
 

@@ -136,6 +136,8 @@ export const login = async (req, res) => {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         sessionId: result.sessionId,
+        roles: result.roles,
+        defaultRole: result.defaultRole,
       },
     });
   } catch (error) {

@@ -79,6 +79,15 @@ export class ProfileService {
           username: true,
           isActive: true,
           isVerified: true,
+          roles: {
+            select: {
+              role: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
         },
       });
 
