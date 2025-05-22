@@ -58,7 +58,8 @@ export const profileSchema = Joi.object({
 
   state: Joi.string().max(50).allow(null, ""),
   country: Joi.string().max(50).allow(null, ""),
-  natonality: Joi.string().max(50).allow(null, ""),
+  cnicNumber: Joi.string().max(50).allow(null, ""),
+  // natonality: Joi.string().max(50).allow(null, ""),
 
   // country: Joi.string()
   //   .valid(...countries)
