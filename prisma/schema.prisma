@@ -196,7 +196,7 @@ model Profile {
   gender           Gender    @default(OTHER)
   emergencyContact String?   @map("emergency_contact") @db.VarChar(100)
   natonality       String?
-  cnicNumber      String?   @map("cnic_number") @db.VarChar(20)
+  cnicNumber      String?   @map("cnic_number") @db.VarChar(13)
 
   // Location
   currentAddress String? @map("current_address") @db.VarChar(255)
