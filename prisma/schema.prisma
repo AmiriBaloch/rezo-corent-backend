@@ -195,8 +195,8 @@ model Profile {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   gender           Gender    @default(OTHER)
   emergencyContact String?   @map("emergency_contact") @db.VarChar(100)
-  natonality       String?
-  cnicNumber      String?   @map("cnic_number") @db.VarChar(13)
+  nationality      String?   
+  cnicNumber       String?   @map("cnic_number") @db.VarChar(13)
 
   // Location
   currentAddress String? @map("current_address") @db.VarChar(255)
