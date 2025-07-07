@@ -71,9 +71,10 @@ app.use(sessionMiddleware);
 // temprarily disabled for local development
 app.use(
   cors({
-    origin: "*", // Update for production security
+    origin: ["http://localhost:3001", "http://localhost:3000"], // Allow both frontend and backend
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    credentials: false,
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.options("*", cors());
@@ -126,6 +127,10 @@ await connectMongoDB();
 // ========================
 // Enhanced Health Check
 // ========================
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.get("/", async (req, res) => {
   const healthCheck = {
     status: "ok",

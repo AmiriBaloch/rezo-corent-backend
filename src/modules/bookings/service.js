@@ -9,7 +9,8 @@ import {
   ValidationError,
 } from "../../utils/apiError.js";
 import logger from "../../config/logger.js";
-import { BookingStatus, PaymentStatus } from "@prisma/client";
+import pkg from "@prisma/client";
+const { BookingStatus, PaymentStatus } = pkg;
 import { validate as isValidUUID } from "uuid";
 import { connect } from "mongoose";
 

@@ -7,6 +7,13 @@ import prisma from '../config/database.js';
 export const guestMiddleware = () => {
   return async (req, res, next) => {
     try {
+      // Allow verification and login routes even if token is present
+      if (
+        req.originalUrl.includes('/api/auth/verify-email') ||
+        req.originalUrl.includes('/api/auth/login')
+      ) {
+        return next();
+      }
       // 1. Check for access token in common locations
       const token =
         req.cookies?.accessToken ||
