@@ -123,6 +123,7 @@ export class PropertyController {
         limit: Joi.number().min(1).max(100).default(10),
       }).validateAsync(req.query);
 
+      // Only fetch APPROVED properties for homepage/listings
       const result = await PropertyService.listApprovedProperties({
         page,
         limit,
@@ -132,6 +133,42 @@ export class PropertyController {
     } catch (error) {
       res.status(error.statusCode || 500).json({
         error: error.message || "Failed to fetch properties",
+      });
+    }
+  }
+
+  // Admin approves a property (status -> APPROVED)
+  static async approveProperty(req, res) {
+    try {
+      const propertyId = req.params.id;
+      // Only allow status change to APPROVED
+      const property = await PropertyService.updatePropertyStatus(propertyId, "APPROVED");
+      res.json({
+        status: "success",
+        data: property,
+        message: "Property approved and indexed",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Approval failed",
+        details: error.message,
+      });
+    }
+  }
+
+  // Admin rejects a property (delete it)
+  static async rejectProperty(req, res) {
+    try {
+      const propertyId = req.params.id;
+      await PropertyService.deleteProperty(propertyId);
+      res.json({
+        status: "success",
+        message: "Property rejected and deleted",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Rejection failed",
+        details: error.message,
       });
     }
   }

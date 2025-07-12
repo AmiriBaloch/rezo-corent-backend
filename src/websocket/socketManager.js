@@ -5,6 +5,7 @@ import ConversationCache from "../models/ConversationCache.js";
 import prisma from "../config/database.js";
 import mongoose from "mongoose";
 import Message from "../models/Message.js";
+import config from "../config/env.js";
 
 // Default allowed origins (development)
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -38,8 +39,8 @@ export function initializeSocket(server) {
       const token = socket.handshake.auth.token;
       if (!token) throw new Error("Authentication required");
 
-      const decoded = verifyToken(token);
-      socket.userId = decoded.userId;
+      const decoded = verifyToken(token, config.get("jwtSecret"));
+      socket.userId = decoded.sub;
       next();
     } catch (error) {
       console.error("Socket auth failed:", error.message);
@@ -108,7 +109,7 @@ export function initializeSocket(server) {
         // Broadcast to conversation room
         io.to(`conv_${messageData.conversationId}`)
           .except(socket.id)
-          .emit("new_message", message);
+          .emit("chat:new_message", { conversationId: messageData.conversationId, message });
 
         // Update last message in cache
         await ConversationCache.updateLastMessage(
@@ -131,7 +132,7 @@ export function initializeSocket(server) {
           { $set: { typingIn: conversationId } }
         );
 
-        socket.to(`conv_${conversationId}`).emit("user_typing", {
+        socket.to(`conv_${conversationId}`).emit("user:typing", {
           userId,
           conversationId,
         });
@@ -144,7 +145,7 @@ export function initializeSocket(server) {
               { $set: { typingIn: null } }
             );
 
-            socket.to(`conv_${conversationId}`).emit("user_stopped_typing", {
+            socket.to(`conv_${conversationId}`).emit("user:stopped_typing", {
               userId,
               conversationId,
             });
@@ -182,10 +183,10 @@ export function initializeSocket(server) {
           }),
         ]);
 
-        io.to(`conv_${conversationId}`).emit("messages_read", {
+        io.to(`conv_${conversationId}`).emit("chat:message_read", {
           userId,
           conversationId,
-          upTo: messageId,
+          messageIds: [messageId],
         });
       } catch (error) {
         console.error("Read receipt error:", error);

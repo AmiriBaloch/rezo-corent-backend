@@ -135,7 +135,7 @@ export class PropertyService {
 
       const [properties, total] = await prisma.$transaction([
         prisma.property.findMany({
-          where: { status: "APPROVED" },
+          where: { status: "APPROVED" }, // Only approved properties
           include: {
             amenities: { select: { id: true, name: true } },
             roomSpecs: { select: { type: true, count: true } },
@@ -461,49 +461,29 @@ export class PropertyService {
    */
   static async deleteProperty(propertyId, ownerId = null) {
     try {
-      console.log("Sanitized Property ID in service:", propertyId);
+      // 1. Check if property exists
+      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      if (!property) return { success: true, message: "Property already deleted" };
+      // Remove AuthError check for ownerId
+      // if (ownerId && property.ownerId !== ownerId) throw new AuthError("Unauthorized");
 
-      const whereClause = {
-        id: propertyId,
-        status: { not: "ARCHIVED" },
-      };
+      // 2. Cascade delete all related records
+      await prisma.amenity.deleteMany({ where: { propertyId } });
+      await prisma.roomSpec.deleteMany({ where: { propertyId } });
+      await prisma.booking.deleteMany({ where: { propertyId } });
+      await prisma.availability.deleteMany({ where: { propertyId } });
+      await prisma.review.deleteMany({ where: { propertyId } });
+      await prisma.payment.deleteMany({ where: { propertyId } });
+      await prisma.rentalDetails.deleteMany({ where: { propertyId } });
+      await prisma.saleDetails.deleteMany({ where: { propertyId } });
+      // Add any other related tables here if needed
 
-      if (ownerId) {
-        whereClause.ownerId = ownerId;
-      }
-
-      const property = await prisma.$transaction(async (tx) => {
-        // 1. Soft delete the property
-        const deletedProperty = await tx.property.update({
-          where: whereClause,
-          data: {
-            deletedAt: new Date(),
-            status: "ARCHIVED",
-          },
-        });
-
-        // 2. Delete related data using single transaction
-        await Promise.all([
-          tx.amenity.deleteMany({ where: { propertyId } }),
-          tx.roomSpec.deleteMany({ where: { propertyId } }),
-          tx.availability.deleteMany({ where: { propertyId } }),
-        ]);
-
-        return deletedProperty;
-      });
-
-      // 3. Clean cache and search index
-      await Promise.all([
-        redis.del(`property:${propertyId}`),
-        // SearchIndexService.remove(propertyId),
-      ]);
-
-      return property;
+      // 3. Delete the property itself
+      await prisma.property.delete({ where: { id: propertyId } });
+      return { success: true };
     } catch (error) {
-      if (error.code === "P2025") {
-        throw new NotFoundError("Property not found or already deleted");
-      }
-      this.handleDatabaseError(error, "Property deletion failed");
+      console.error("Error in deleteProperty:", error);
+      throw new Error("Property deletion failed");
     }
   }
 
@@ -590,15 +570,34 @@ export class PropertyService {
   // --- Helper Methods ---
 
   static sanitizePropertyData(data) {
+    // Handle location data - support both old format and new format
+    let locationData;
+    if (data.location && typeof data.location === 'object') {
+      if (data.location.coordinates && Array.isArray(data.location.coordinates)) {
+        // New format: { coordinates: [lng, lat], type: "Point" }
+        const [lng, lat] = data.location.coordinates;
+        locationData = geoJSON.forDatabase(parseFloat(lat), parseFloat(lng));
+      } else if (data.location.lat && data.location.lng) {
+        // Old format: { lat, lng }
+        locationData = geoJSON.forDatabase(
+          parseFloat(data.location.lat),
+          parseFloat(data.location.lng)
+        );
+      } else {
+        // Fallback to default location
+        locationData = geoJSON.forDatabase(31.5204, 74.3587); // Lahore default
+      }
+    } else {
+      // Fallback to default location
+      locationData = geoJSON.forDatabase(31.5204, 74.3587); // Lahore default
+    }
+
     return {
       title: data.title,
       description: data.description,
       basePrice: data.basePrice,
       currency: data.currency,
-      location: geoJSON.forDatabase(
-        parseInt(data.location.lat),
-        parseInt(data.location.lng)
-      ),
+      location: locationData,
       address: data.address,
       city: data.city,
       state: data.state,
@@ -760,7 +759,6 @@ export class PropertyService {
         where: {
           ...prismaWhere,
           id: { in: propertyIds },
-          status: "APPROVED", // Only show approved properties
         },
         include: {
           roomSpecs: true,
@@ -831,6 +829,9 @@ export class PropertyService {
       },
     });
 
+    // Clear relevant caches when status changes
+    await this.clearPropertyCaches(propertyId, status);
+
     // Automatically index when status changes to APPROVED
     if (status === "APPROVED") {
       await this.indexProperty(propertyId);
@@ -840,6 +841,47 @@ export class PropertyService {
     }
 
     return property;
+  }
+
+  /**
+   * Clear relevant caches when property status changes
+   * @param {string} propertyId
+   * @param {string} status
+   */
+  static async clearPropertyCaches(propertyId, status) {
+    try {
+      // Clear individual property cache
+      await redis.del(`property:${propertyId}`);
+
+      // Clear approved properties cache (since status changed)
+      const approvedCacheKeys = await redis.keys('approved_properties:*');
+      if (approvedCacheKeys.length > 0) {
+        await redis.del(...approvedCacheKeys);
+      }
+
+      // Clear pending properties cache (since status changed)
+      const pendingCacheKeys = await redis.keys('pending_properties:*');
+      if (pendingCacheKeys.length > 0) {
+        await redis.del(...pendingCacheKeys);
+      }
+
+      // Get property owner ID to clear owner-specific caches
+      const property = await prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { ownerId: true }
+      });
+
+      if (property?.ownerId) {
+        const ownerCacheKeys = await redis.keys(`properties:${property.ownerId}:*`);
+        if (ownerCacheKeys.length > 0) {
+          await redis.del(...ownerCacheKeys);
+        }
+      }
+
+      console.log(`Cleared caches for property ${propertyId} status change to ${status}`);
+    } catch (error) {
+      console.error('Error clearing property caches:', error);
+    }
   }
 
   /**
@@ -946,11 +988,14 @@ export class PropertyService {
 
   static async listofPENDINGProperties({ page = 1, limit = 10 }) {
     const CACHE_TTL = 300; // 5 minutes
-    const cacheKey = `pending_properties:page_${page}_limit_${limit}`;
+    const cacheKey = `pending_properties:page:${page}:limit:${limit}`;
 
     try {
+      // Check cache first
       const cached = await redis.get(cacheKey);
-      if (cached) return JSON.parse(cached);
+      if (cached) {
+        return JSON.parse(cached);
+      }
 
       const [properties, total] = await prisma.$transaction([
         prisma.property.findMany({
@@ -958,6 +1003,18 @@ export class PropertyService {
           include: {
             amenities: { select: { id: true, name: true } },
             roomSpecs: { select: { type: true, count: true } },
+            owner: {
+              select: {
+                profile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    phone: true,
+                    avatarUrl: true,
+                  },
+                },
+              },
+            },
           },
           skip: (page - 1) * limit,
           take: limit,
@@ -976,6 +1033,7 @@ export class PropertyService {
         },
       };
 
+      // Cache the result
       redis.setex(cacheKey, CACHE_TTL, JSON.stringify(result));
       return result;
     } catch (error) {

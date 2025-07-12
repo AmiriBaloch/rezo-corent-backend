@@ -10,6 +10,7 @@ import messageRoutes from "./message/routes.js";
 import profileRoutes from "./profile/routes.js";
 import bookingRoutes from "./bookings/routes.js";
 import redis from "../config/redis.js";
+import ownershipRequestRoutes from "./ownership-request/routes.js";
 
 const routes = Router();
 routes.use("/auth", authRoutes);
@@ -21,6 +22,7 @@ routes.use("/properties", propertyRoutes);
 routes.use("/conversations", messageRoutes);
 routes.use("/profile", profileRoutes);
 routes.use("/bookings", bookingRoutes);
+routes.use("/ownership-requests", ownershipRequestRoutes);
 routes.get("/csrf-token", (req, res) => {
   res.cookie('CSRF-TOKEN', token, {
     httpOnly: false, // So frontend JS can read it

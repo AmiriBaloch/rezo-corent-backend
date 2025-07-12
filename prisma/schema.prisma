@@ -119,6 +119,7 @@ model User {
   conversations       ConversationParticipant[]
   sentMessages        MessageMetadata[]         @relation("SenderToMessage")
   receivedMessages    MessageMetadata[]         @relation("ReceiverToMessage")
+  ownershipRequests   OwnershipRequest[]
 
   @@index([email, isActive])
   @@index([username, isActive])
@@ -632,4 +633,30 @@ model DeliveryReceipt {
   readAt     DateTime?
 
   @@unique([messageId, userId])
+}
+
+// --------------------------------------------------
+// Ownership Request System
+// --------------------------------------------------
+enum OwnershipRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model OwnershipRequest {
+  id          String                  @id @default(uuid()) @db.Uuid
+  userId      String                  @db.Uuid
+  email       String                  @db.VarChar(255)
+  status      OwnershipRequestStatus  @default(PENDING)
+  profile     Json?
+  createdAt   DateTime                @default(now()) @map("created_at")
+  updatedAt   DateTime                @updatedAt @map("updated_at")
+  approvedAt  DateTime?
+  rejectedAt  DateTime?
+  user        User                    @relation(fields: [userId], references: [id])
+
+  @@unique([userId, status])
+  @@index([email, status])
+  @@map("ownership_requests")
 }

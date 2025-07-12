@@ -7,6 +7,9 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticateUser());
 
+// GET /conversations - Get user conversations
+router.get('/', messageController.getUserConversations);
+
 // POST /messages - Create new message
 router.post('/:id/messages', messageController.createMessage);
 

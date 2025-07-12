@@ -20,8 +20,11 @@ export default (passport) => {
   passport.use(
     new JwtStrategy(jwtOptions, async (jwt_payload, done) => {
       try {
+        // Debug: print the incoming JWT payload
+        console.log('JWT PAYLOAD:', jwt_payload);
         // Validate token type
         if (jwt_payload.type !== "access") {
+          console.log('Invalid token type:', jwt_payload.type);
           return done(null, false, { message: "Invalid token type" });
         }
 
@@ -43,24 +46,32 @@ export default (passport) => {
           },
         });
 
+        // Debug: print user lookup result
+        console.log('USER LOOKUP RESULT:', user);
+
         // Validate user status
         if (!user) {
+          console.log('User not found for id:', jwt_payload.sub);
           return done(null, false, { message: "User not found" });
         }
         if (!user.isActive) {
+          console.log('Account deactivated for user:', user.id);
           return done(null, false, { message: "Account deactivated" });
         }
         if (!user.isVerified) {
+          console.log('Account unverified for user:', user.id);
           return done(null, false, { message: "Account unverified" });
         }
 
         // Validate active session
         if (user.sessions.length === 0) {
+          console.log('No active session for user:', user.id);
           return done(null, false, { message: "No active session" });
         }
 
         return done(null, user);
       } catch (error) {
+        console.error('JWT AUTH ERROR:', error);
         logger.error(`JWT Authentication Error: ${error.message}`);
         return done(error, false);
       }

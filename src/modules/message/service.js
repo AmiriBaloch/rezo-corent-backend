@@ -5,6 +5,77 @@ import mongoose from "mongoose";
 
 export class MessageService {
   /**
+   * Get user conversations with last message and participant info
+   * @param {string} userId
+   * @returns {Promise<Array>} List of conversations
+   */
+  static async getUserConversations(userId) {
+    try {
+      // Get user's conversations from PostgreSQL
+      const userConversations = await prisma.conversation.findMany({
+        where: {
+          participants: {
+            some: {
+              userId: userId
+            }
+          }
+        },
+        include: {
+          participants: {
+            include: {
+              user: {
+                include: {
+                  profile: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          lastMessageAt: 'desc'
+        }
+      });
+
+      // Get cached conversation data
+      const conversationIds = userConversations.map(conv => conv.id);
+      const cachedConversations = await ConversationCache.find({
+        conversationId: { $in: conversationIds }
+      }).lean();
+
+      // Merge PostgreSQL and MongoDB data
+      const conversations = userConversations.map(conv => {
+        const cached = cachedConversations.find(c => c.conversationId === conv.id);
+        const currentUserParticipant = conv.participants.find(p => p.userId === userId);
+        
+        return {
+          id: conv.id,
+          title: conv.title,
+          avatar: conv.avatar,
+          participants: conv.participants.map(p => ({
+            userId: p.user.id,
+            name: `${p.user.profile?.firstName || ''} ${p.user.profile?.lastName || ''}`.trim() || p.user.email,
+            email: p.user.email,
+            avatarUrl: p.user.profile?.avatarUrl,
+            joinedAt: p.joinedAt,
+            lastRead: p.lastRead,
+            unreadCount: cached?.participants?.find(cp => cp.userId === p.user.id)?.unreadCount || 0
+          })),
+          lastMessage: cached?.lastMessage || null,
+          createdAt: conv.createdAt,
+          updatedAt: conv.updatedAt || cached?.updatedAt || conv.lastMessageAt,
+          unreadCount: currentUserParticipant ? 
+            (cached?.participants?.find(cp => cp.userId === userId)?.unreadCount || 0) : 0
+        };
+      });
+
+      return conversations;
+    } catch (error) {
+      console.error('Error fetching user conversations:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Create a new message with transaction support
    * @param {Object} params
    * @param {string} params.conversationId

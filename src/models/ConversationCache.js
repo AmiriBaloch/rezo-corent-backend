@@ -75,6 +75,28 @@ conversationSchema.methods.updateLastMessage = async function(message) {
   return this.save();
 };
 
+// Static method for updating last message by conversation ID
+conversationSchema.statics.updateLastMessage = async function(conversationId, message) {
+  const conversation = await this.findOne({ conversationId });
+  
+  if (!conversation) {
+    // Create new cache entry if it doesn't exist
+    const newConversation = new this({
+      conversationId,
+      lastMessage: {
+        messageId: message.messageId,
+        senderId: message.senderId,
+        content: message.content?.text || '[Attachment]',
+        sentAt: message.createdAt,
+        status: message.status
+      }
+    });
+    return newConversation.save();
+  }
+  
+  return conversation.updateLastMessage(message);
+};
+
 const ConversationCache = model('ConversationCache', conversationSchema);
 
 export default ConversationCache;

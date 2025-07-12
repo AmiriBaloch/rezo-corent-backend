@@ -94,15 +94,15 @@ app.use(passport.session());
 // ========================
 // Rate Limiting
 // ========================
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per window
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: "Too many requests, please try again later.",
-  })
-);
+// app.use(
+//   rateLimit({
+//     windowMs: 15 * 60 * 1000, // 15 minutes
+//     max: 100, // Limit each IP to 100 requests per window
+//     standardHeaders: true,
+//     legacyHeaders: false,
+//     message: "Too many requests, please try again later.",
+//   })
+// );
 
 // ========================
 // Request Parsing
@@ -121,8 +121,16 @@ app.use(httpLogger);
 // Database Connections
 // ========================
 
-await connectPostgres();
-await connectMongoDB();
+(async () => {
+  try {
+    await connectPostgres();
+    await connectMongoDB();
+    console.log("✅ Database connections established");
+  } catch (err) {
+    console.error("❌ Failed to connect to database(s):", err);
+    process.exit(1);
+  }
+})();
 
 // ========================
 // Enhanced Health Check

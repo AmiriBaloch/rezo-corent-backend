@@ -57,7 +57,7 @@ export const guestMiddleware = () => {
         success: false,
         code: 'AUTHENTICATED_ACCESS',
         message: error.message || 'Already authenticated',
-        redirectUrl: '/dashboard'
+        redirectUrl: '/'
       });
     }
   };

@@ -8,7 +8,7 @@ import { disconnectDB } from "./config/database.js";
 import { disconnectMongoDB } from "./config/mongodb.js";
 import { disconnectRedis } from "./config/redis.js";
 import { logger } from "./config/logger.js";
-import { setupWebSocket } from "./websocket/index.js";
+import { initializeSocket } from "./websocket/socketManager.js";
 
 const PORT = config.get("port");
 
@@ -18,7 +18,7 @@ const PORT = config.get("port");
 const startServer = async () => {
   try {
     const server = http.createServer(app);
-    setupWebSocket(server);
+    initializeSocket(server);
 
     // ========================
     // Graceful Shutdown
@@ -59,7 +59,7 @@ const startServer = async () => {
       console.log(`
         ################################################
         🚀 HTTP Server: http://localhost:${PORT} 🚀
-        🚀 WebSocket Server: ws://localhost:${PORT}/ws 🚀
+        🚀 Socket.IO Server: ws://localhost:${PORT}/socket.io 🚀
         🌍 Environment: ${config.get("env")}
         🛠️  Worker PID: ${process.pid}
         ################################################
@@ -67,7 +67,7 @@ const startServer = async () => {
       logger.info(`
         ################################################
         Server running on http://localhost:${PORT}
-        WebSocket Server: ws://localhost:${PORT}/ws
+        Socket.IO Server: ws://localhost:${PORT}/socket.io
         Environment: ${config.get("env")}
         Worker PID: ${process.pid}
         ################################################

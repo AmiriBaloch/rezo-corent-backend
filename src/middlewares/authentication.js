@@ -68,6 +68,9 @@ function resolveResourcePattern(pattern, req) {
 // ==================================================
 export const authenticateUser = (options = {}) => {
   return (req, res, next) => {
+    console.log('AUTH MIDDLEWARE CALLED for', req.originalUrl);
+    // Add logging for debugging
+    console.log('AUTH HEADER:', req.headers.authorization);
     const requireVerified = options.requireVerified ?? true;
     const requireMFA = options.requireMFA ?? false;
     const allowedRoles = options.roles || [];
@@ -78,6 +81,7 @@ export const authenticateUser = (options = {}) => {
       async (error, user, info) => {
         try {
           if (error || !user) {
+            console.error('AUTH ERROR:', error, info);
             logger.warn(
               `Authentication failed: ${info?.message || "Unknown error"}`,
               {
@@ -149,6 +153,9 @@ export const authenticateUser = (options = {}) => {
               }))
             ),
           };
+
+          // Add logging for debugging
+          console.log('DECODED USER:', req.user);
 
           next();
         } catch (error) {

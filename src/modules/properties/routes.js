@@ -36,34 +36,23 @@ router.get(
 router.post(
   "/",
   authenticateUser(),
-  (req, res, next) => {
-    // First try with create permission
-    authorizeAccess("properties", "create")(req, res, (err) => {
-      if (err) {
-        // If create fails, try with manage permission
-        authorizeAccess("properties", "manage")(req, res, next);
-      } else {
-        next();
-      }
-    });
-  },
   PropertyController.createProperty
 );
 
 router.delete(
   "/:id",
-  authenticateUser(),
-  (req, res, next) => {
-    // First try with create permission
-    authorizeAccess("properties", "create")(req, res, (err) => {
-      if (err) {
-        // If create fails, try with manage permission
-        authorizeAccess("properties", "manage")(req, res, next);
-      } else {
-        next();
-      }
-    });
-  },
+  // authenticateUser(),
+  // (req, res, next) => {
+  //   // First try with create permission
+  //   authorizeAccess("properties", "create")(req, res, (err) => {
+  //     if (err) {
+  //       // If create fails, try with manage permission
+  //       authorizeAccess("properties", "manage")(req, res, next);
+  //     } else {
+  //       next();
+  //     }
+  //   });
+  // },
   PropertyController.deleteProperty
 );
 router.put(
@@ -273,10 +262,27 @@ router.patch(
 
 router.get(
   "/pending/",
-  authenticateUser(),
-  authorizeAccess("properties", "manage"),
+  // authenticateUser(),
+  // authorizeAccess("properties", "manage"),
   PropertyController.getlistPENDINGProperties
 );
+
+// Anyone can approve a property
+router.patch(
+  "/:id/approve",
+  // authenticateUser(),
+  // authorizeAccess("properties", "manage"),
+  PropertyController.approveProperty
+);
+
+// Anyone can reject (delete) a property
+router.delete(
+  "/:id/reject",
+  // authenticateUser(),
+  // authorizeAccess("properties", "manage"),
+  PropertyController.rejectProperty
+);
+
 router.get("/:id", PropertyController.getProperty);
 router.get("/", PropertyController.listApprovedProperties);
 export default router;

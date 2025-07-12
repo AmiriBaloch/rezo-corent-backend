@@ -3,6 +3,27 @@ import { getIO } from '../../websocket/index.js';
 
 export const messageController = {
   /**
+   * Get user conversations
+   */
+  async getUserConversations(req, res) {
+    try {
+      const userId = req.user.userId;
+      const conversations = await MessageService.getUserConversations(userId);
+
+      res.json({
+        status: 'success',
+        data: conversations
+      });
+    } catch (error) {
+      console.error('Failed to fetch conversations:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to retrieve conversations'
+      });
+    }
+  },
+
+  /**
    * Handle message creation
    */
   async createMessage(req, res) {

@@ -1,4 +1,16 @@
 import { ProfileService } from "./service.js";
+import fs from "fs";
+import path from "path";
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const logFile = path.join(__dirname, '../../../profile_api_debug.log');
+function logDebug(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  fs.appendFileSync(logFile, line);
+}
 
 export const profileController = {
   /**
@@ -8,6 +20,15 @@ export const profileController = {
    */
   async getProfile(req, res) {
     try {
+      // Commented out to fix EACCES error
+      // logDebug(`Incoming /profile request. User: ${req.user ? JSON.stringify(req.user) : 'NO USER'}`);
+      if (!req.user || !req.user.id) {
+        // logDebug('Missing or invalid req.user in /profile');
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized: user not authenticated or token invalid",
+        });
+      }
       const result = await ProfileService.getProfile(req.user.id);
 
       if (result.profileExists === false) {
@@ -27,7 +48,13 @@ export const profileController = {
         data: result,
       });
     } catch (error) {
-      console.error("Failed to fetch profile:", error);
+      console.error("Failed to fetch profile:", error, "userId:", req.user && req.user.id);
+      if (error.message === 'User not found') {
+        return res.status(404).json({
+          status: "error",
+          message: "User not found",
+        });
+      }
       res.status(500).json({
         status: "error",
         message: error.message || "Failed to retrieve profile",

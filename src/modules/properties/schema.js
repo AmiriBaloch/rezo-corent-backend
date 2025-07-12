@@ -33,10 +33,27 @@ export const propertySchema = Joi.object({
   minStay: Joi.number().integer().positive().required(),
   maxStay: Joi.number().integer().positive().optional(),
   amenities: Joi.array().items(Joi.string()).optional(),
-  location: Joi.object({
-    lat: Joi.number().min(-90).max(90).required(),
-    lng: Joi.number().min(-180).max(180).required(),
-  }).required(),
+  location: Joi.alternatives().try(
+    // Old format: { lat, lng }
+    Joi.object({
+      lat: Joi.number().min(-90).max(90).required(),
+      lng: Joi.number().min(-180).max(180).required(),
+    }),
+    // New GeoJSON format: { type: "Point", coordinates: [lng, lat] }
+    Joi.object({
+      type: Joi.string().valid("Point").required(),
+      coordinates: Joi.array().items(Joi.number()).length(2).required(),
+      crs: Joi.object().optional(),
+    }),
+    // Extended format with both coordinates and lat/lng
+    Joi.object({
+      type: Joi.string().valid("Point").required(),
+      coordinates: Joi.array().items(Joi.number()).length(2).required(),
+      lat: Joi.number().min(-90).max(90).optional(),
+      lng: Joi.number().min(-180).max(180).optional(),
+      crs: Joi.object().optional(),
+    })
+  ).required(),
   photos: Joi.array().items(Joi.string().uri()).optional(),
   virtualTours: Joi.array().items(Joi.string().uri()).optional(),
   sizeSqft: Joi.number().positive().required(),

@@ -4,7 +4,4 @@ export default {
   setupFilesAfterEnv: ["./src/test/setup.js"],
   testTimeout: 10000,
   verbose: true,
-  transform: {
-    "^.+\\.js$": "babel-jest",
-  },
 };
